@@ -1,0 +1,96 @@
+\chapter{Introduction}
+
+\section{Formal Methods}
+Often programs are difficult to understand and maintain due to their
+complexity and size. Nevertheless reliable programs are important for
+modern technologies. 
+One abundant technique to improve software quality is testing. In the
+case of software, testing is relatively cheap and can be done 
+extensively. However it is in general impossible to execute all possible
+paths in a program. Furthermore only an already implemented program can
+be tested. Thus problems and errors are detected late in the development
+leading to major rework and waste of resources. Additional techniques
+are needed to perform software development in a satisfactory way.
+Since every program is a calculation, mathematics can be used throughout
+the development to improve software quality. Techniques that use 
+mathematics for software development are called formal methods \cite{fmb}.
+Formal methods have in common that they provide means to calculate the
+behavior of a program \cite[p. 371]{scs}. This stands in contrast to 
+testing where the program is executed and its behavior observed. With
+formal methods it is possible to prove that statements about program
+behavior are true for all possible states, whereas testing observes it
+for single cases.
+One particular formal method is based on programming by contract 
+\footnote{\verb"en.wikipedia.org/wiki/Design\_by\_contract"}. 
+First a program is annotated with contracts. In a second step the 
+contracts are proven to hold for this program. For some languages there
+is already tool support for this technique. Especially the recent 
+advances in automated theorem proving make the use of theorem provers
+attractive in the context of program verification \cite{onelogic}.
+A thorough analysis is important when
+\begin{itemize}
+\item the calculation is large and repeating it is painful
+\item important decisions depend on the result of the calculation
+\item the program is part of a system that must operate autonomously 
+at remote locations
+\item system failure leads to huge losses
+\end{itemize}
+Formal methods can assist the engineers and scientists who perform
+the calculations and build the systems.
+
+\section{Assembly Verification}
+
+Often only the source code of a high-level programming language is 
+analyzed when writing a program. Nevertheless it can also be beneficial
+to extend the (formal) verification to the assembly or object code level.
+Since compiler are large complex programs their implementation needs a
+lot of effort. For some architectures no compiler might be available. So
+you have to program in assembly. Hand coded assembly procedures might
+also be necessary to speed up a calculation or to implement a device
+driver \cite[p. 4 -- 8]{armb}. A method that helps in the verification of an assembly
+program is highly welcome in these cases. Moreover the analysis of assembly
+or object code can relieve engineers of the burden to prove correctness
+of a compiler.
+Finally the behavior of a machine with a von Neumann architecture is 
+relatively simple to understand. Especially when the instruction set is
+kept simple, like in the case of the MIPS architecture. High-level 
+languages on the contrary have many constructs and rules that are hard
+to understand and to learn. Sometimes programming languages have no clear
+semantics at all (e. g. Undefined Behavior in C 
+\footnote{\verb"blog.regehr.org/archives/213"}). Thus assembly
+is more amenable to formal analysis.
+
+\section{Why3}
+
+Why3 enables verification of programs with help of theorem provers \cite{wpmp}.
+It will be used in this work to analyze MIPS assembly programs. The
+verification method used in Why3 is a variant of design by contract.
+Assertions are used to describe what a program should do (specification).
+For this purpose a specification language is used that allows the 
+description of the expected program behavior using logical statements
+(e. g. "All elements of array A have a value between 1 and 10.").
+Furthermore a programming language (WhyML) is used to define what the
+program actually does (implementation). An algorithm translates the program into mathematical
+formulas. For this purpose it analyzes the control and data flow of the program. As an example the 
+sequence of assignments $x := 3; x := x + 1;$ could be translated to 
+the logical statements $x_1 = 3 \text{ and } x_2 = x_1 + 1$. The user defined 
+assertions also represent mathematical formulas. So Why3 can invoke a
+theorem prover in order to prove that these assertions can be proved
+from the formulas corresponding to the implementation of the program. In
+the above example the annotated program
+\begin{lstlisting}
+    x := 3;
+    x := x + 1;
+    assert x = 4
+\end{lstlisting}
+would be translated to 
+\begin{lstlisting}
+    proof context: x_1 = 3 and x_2 = x_1 + 1
+    proof goal: x_2 = 4
+\end{lstlisting}
+The proof can succeed by substitution of $x_1 = 3$ in $x_2 = x_1 + 1$.
+So we get $x_2 = 3 + 1 = 4$.
+A successful proof is a confirmation that the implementation of the 
+program is in accordance with its specification.
+
+

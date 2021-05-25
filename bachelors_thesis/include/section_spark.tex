@@ -1,0 +1,110 @@
+\section{SPARK}
+
+SPARK is a subset of the Ada programming language \cite{spark14}. It will be 
+used as a first example to demonstrate program proofs. The SPARK tools
+analyze Ada source code where the specification is given in form of 
+contracts. Based on the contracts and the semantics of the programming
+language the tools generate proof obligations. These proof obligations,
+also called verification conditions, are passed to a theorem prover.
+Finally the prover is invoked to find a proof of the verification 
+conditions.
+The following small function demonstrates the basic concepts. The 
+saturated counter is meant to increment the value given to it. When the
+value is at its upper bound it should not be incremented anymore.
+This is the specification of the function.
+\begin{lstlisting}
+type Value_Type is range 0 .. 15;
+
+function Saturated_Counter(x: in Value_Type) 
+    return Value_Type
+ with Post =>
+  (if x = 15 then
+    Saturated_Counter'Result = x
+   else 
+    Saturated_Counter'Result = x + 1);
+\end{lstlisting}
+First a discrete type is defined. Variables of the \verb"Value_Type" can only
+hold values in the interval $[0, 15]$. The function \verb"Saturated_Counter"
+takes $x$ of \verb"Value_Type" as input and returns a \verb"Value_Type". Furthermore the 
+postcondition states that \verb"Saturated_Counter" only returns $x + 1$ when $x$ is
+not already at its maximum value. One task of the SPARK tools (and 
+the programmer) is to prove that this postcondition follows from the 
+implementation of \verb"Saturated_Counter".
+\begin{lstlisting}
+function Saturated_Counter(x: in Value_Type) 
+  return Value_Type is
+ r: Value_Type;
+begin
+ if x < Value_Type'Last then
+  r := x + 1;
+ else
+  r := Value_Type'Last;
+ end if;
+ return r;
+end Saturated_Counter;
+\end{lstlisting}
+An additional variable $r$ is declared to hold the return value. Furthermore
+the attribute \verb"Last" is used to retrieve the upper bound of \verb"Value_Type".
+Indeed the proof succeeds when the SPARK tools are invoked. By manual
+inspection the proof arguments can be reproduced. According to the type
+of $x$ we know that its value lies in the range $[0, 15]$. This is an implicit
+precondition. In the then branch of the conditional statement we have
+$x < 15$ so it follows that $x$ is in the range $[0, 14]$. Consequently the 
+incremented value will be in the range $[1, 15]$ and will not exceed the
+limits posed by the type definition of \verb"Value_Type". Furthermore the 
+else part of the postcondition will hold. In the else part of the 
+implementation we have $x \geq 15$. Combining this with the type defined
+range of x we get $x \geq 0$ and $x \leq 15$ and $x \geq 15$. So we conclude that $x$
+is 15 in the else part. In this case we just pass the input to the output
+and fulfill the first part of the specification.
+Now we introduce an error by removing the else part of the conditional
+statement.
+\begin{lstlisting}
+function Saturated_Counter(x: in Value_Type)
+  return Value_Type is
+ r: Value_Type;
+begin
+ if x < Value_Type'Last then
+  r := x + 1;
+ end if;
+ return r;
+end Saturated_Counter;
+\end{lstlisting}
+In this case the SPARK tools complain about multiple issues. First the
+tools state that the variable r might not be initialized. Prior to the
+proof attempts the SPARK tools perform a data flow analysis to check that
+every variable is written before being read. Indeed we would return an
+uninitialized value in the case of $x = 15$. The second issue is related
+to the first. The SPARK tools report that the postcondition of the function
+might fail. The proof that the result of \verb"Saturated_Counter" is $x$ in the case
+of $x = 15$ could not succeed. It is not surprising since this behavior
+is not implemented. So we found an error in the implementation with help
+of the static analysis.
+We change the program again by removing the temporary variable.
+\begin{lstlisting}
+function Saturated_Counter(x: in Value_Type)
+  return Value_Type is
+begin
+ if x < Value_Type'Last then
+  return x + 1;
+ else
+  return x;
+ end if;
+end Saturated_Counter;
+\end{lstlisting}
+Now the SPARK analysis is successful. We found an alternative 
+implementation of the function \verb"Saturated_Counter". Only the implementation
+was changed while preserving the specification. \\
+This kind of analysis makes it possible to introduce static checks for
+a myriad of programming errors. An example is this short statement
+where $A$ is an array \cite{sweb}.
+\begin{lstlisting}
+A(I + J) := P / Q;
+\end{lstlisting}
+Here are multiple things that can go wrong. The summation ($I + J$) can 
+cause an overflow or be out of range of the array index type. The division
+($P / Q$) can result in a division by zero or an overflow when $Q < 1$. 
+Furthermore the result could be outside of the type range of 
+the array element. It is very difficult and tiring to keep track of all
+the possible pitfalls manually. Static analysis can assist the programmer
+and reduce errors.

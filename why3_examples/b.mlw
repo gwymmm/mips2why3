@@ -1,0 +1,7 @@
+module B
+
+use import int.Int
+
+constant y: int
+
+end

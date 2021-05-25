@@ -1,0 +1,85 @@
+module ProgramSpec
+
+use import int.Int
+use import ref.Ref
+
+(* sequential composition *)
+(* NOTE: To get separated theories for the assertions you have
+         to split the generated verification condition in the IDE session.
+         Use the split button on the left. Then you can look at the 
+         individual theories by selecting them (middle) and 
+         changing to the task view on the right. *)
+let seq (a: ref int) (b: ref int) (c: ref int): unit
+=
+ a := 3;
+ a := !a + 1;
+ assert { !a = 4 };
+ b := !a;
+ assert { !b = 4 };
+ c := !a + !b;
+ assert { !c = 8 };
+ assert { !c > 0 };
+ ()
+
+(* conditional branches *)
+let cond (a: ref int) (b: ref int) (c: ref int): unit
+=
+
+ if (!a < 0) then (
+  a := !a * (-1);
+  b := 0
+ )
+ else (
+  b := 1
+ );
+
+ c := 7;
+ assert { (!a >= 0) /\ (!b = 1 \/ !b = 0) /\ (!c = 7) };
+ ()
+
+
+(* procedure invocation *)
+let sum (a: ref int) (b: ref int) (c: ref int): unit
+ requires { (!a >= 0 /\ !a <= 10) /\ (!b >= 0 /\ !b <= 10) }
+ ensures { !c = old (!a) + old (!b) }
+=
+ c := !a + !b;
+ a := 10;
+ ()
+
+
+let sum_invocation (x: ref int) (y: ref int) (z: ref int): unit
+=
+ x := 2;
+ y := 3;
+ z := 7;
+ sum x y z;
+ assert { !z = 5 };
+ assert { !y = 3 };
+ (* ! no proof ! *)
+ (* assert { !x = 10 \/ !x = 2}; *)
+ ()
+
+(* break statement = throw an exception *)
+exception Break unit
+ 
+(* loop example *)
+let looping (x: ref int): unit
+=
+ x := 0;
+
+ try
+  loop
+  (* that is already the specification *)
+  invariant { 0 <= !x <= 10 }
+  variant { 10 - !x }
+  (* begin loop *)
+   if (!x = 10) then raise Break;
+   x := !x + 1 
+  end (* loop *)
+ with Break -> ()
+ end (* try block *) ;
+ assert { !x = 10 };
+ ()
+
+end

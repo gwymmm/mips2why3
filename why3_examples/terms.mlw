@@ -1,0 +1,35 @@
+module T
+
+use import int.Int
+
+constant x: int
+
+function add (x: int) (y: int) (z: int): int
+
+function add2 (x:int) (y: int) (z:int): int = x + y + z
+
+constant a: int
+constant b: int
+
+(* set values for a and b *)
+axiom Val_of_a: a = 3
+axiom Val_of_b: b = 2
+
+(* define add *)
+axiom Add_is_add2: 
+  forall i: int.
+  forall j: int.
+  forall k: int.
+    add i j k = add2 i j k
+
+(* provers can count: 3 + (2 + 8) + 7 = 20 *)
+goal Result_is_20: (add a (b+8) 7) = 20
+
+(* absolute value of x *)
+function abs (x:int) : int = if (x >= 0) then (x) else ( (-1) * x )
+
+(* abs is always non negative *)
+goal Abs_non_negative: forall i: int. (abs i) >= 0   
+
+
+end 
