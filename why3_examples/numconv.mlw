@@ -1,0 +1,14 @@
+module M
+
+use import int.Int
+use import int.EuclideanDivision
+use import mips.MIPS
+use import ref.Ref
+
+let f (t0: ref int) : unit
+=
+ t0 := 0xffff_ffff;
+ assert { (unsigned_to_signed !t0) = -1 }; 
+ 
+
+end 

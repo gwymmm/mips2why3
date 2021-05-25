@@ -1,0 +1,31 @@
+module Q
+
+use import int.Int
+
+(* All integer are smaller than their successor *)
+goal Int_is_monotonic: forall i:int. i < (i + 1)
+
+(* -10 is smaller than 0 and forall integer that are greater than 10
+follows that they are greater than 0 *)
+goal About_zero: (-10 < 0) /\ ( forall i:int. (i > 10) -> (i > 0) )
+
+(* For all integer there exists at least one integer that is greater than
+ this integer *)
+(* Proven by Z3 *)
+goal Something_is_always_greater:
+  forall i:int.
+  exists j:int.
+    j > i
+
+(* Alt-ergo needs a "hint" *)
+constant b:int
+
+goal B: b + 1 > b
+
+(* Know that x + 1 is always greater than x *)
+axiom B2: b + 1 > b
+
+(* Alt-ergo needs axiom B2 to prove this *)
+goal Something_is_always_greater2: exists j:int. j > b
+
+end

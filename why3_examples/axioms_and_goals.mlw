@@ -1,0 +1,18 @@
+module AaG
+
+use import int.Int
+
+constant a: int
+
+axiom Aval: a = 10
+
+goal A_greater_2: a > 2
+
+(* Introduce a wrong assumption and prove everything *)
+
+(* 
+axiom Nonsense: 2 = 7
+goal Nonsense2: 17 + 2 > 1000
+*)
+
+end

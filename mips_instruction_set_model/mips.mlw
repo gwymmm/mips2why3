@@ -1,0 +1,1100 @@
+module MIPS
+(* Why3 model for a subset of the MIPS instruction set *)
+
+(* description of instructions taken from C. Price, MIPS IV Instruction Set, Revision 3.2, 1995 *)
+
+(* instruction syntax according to the MARS Simulator *)
+
+(* WHY3 LIBRARY *)
+
+(* Unbound Integer *)
+use import int.Int
+
+(* Memory Cells *)
+use import ref.Ref
+
+(* Unbound Array *)
+use import map.Map
+
+(* Euclidean Division (modulo arithmetic) *)
+use import int.EuclideanDivision
+
+(* CONSTANT DEFINITIONS *)
+
+(* 2^32 for a 32 bit architecture *)
+constant c_2_POW_32: int
+axiom c_2_POW_32_val: c_2_POW_32 = 4_294_967_296
+
+(* 2^24 to split words in bytes *)
+constant c_2_POW_24: int
+axiom c_2_POW_24_val: c_2_POW_24 = 16_777_216
+
+(* 2^16 for 16 bit immediate values *)
+constant c_2_POW_16: int
+axiom c_2_POW_16_val: c_2_POW_16 = 65_536
+
+(* 2^8 to split words in bytes *)
+constant c_2_POW_8: int
+axiom c_2_POW_8_val: c_2_POW_8 = 256
+
+(* 2^31 for 32 bit twos complement *)
+constant c_2_POW_31: int
+axiom c_2_POW_31_val: c_2_POW_31 = 2_147_483_648
+
+(* 2^15 for 16 bit twos complement *)
+constant c_2_POW_15: int
+axiom c_2_POW_15_val: c_2_POW_15 = 32_768
+
+(* 2^7 for 8 bit twos complement *)
+constant c_2_POW_7: int
+axiom c_2_POW_7_val: c_2_POW_7 = 128
+
+(* 16 bit sign extension mask *)
+constant c_SE_MASK_16: int
+axiom c_SE_MASK_16_val: c_SE_MASK_16 = 4_294_901_760 (* 0xffff_0000 *)
+
+(* 8 bit sign extension mask *)
+constant c_SE_MASK_8: int
+axiom c_SE_MASK_8_val: c_SE_MASK_8 = 4_294_967_040 (* 0xffff_ff00 *)
+
+(* HELPER FUNCTIONS *)
+
+predicate in_32bit_bounds (v: int)
+= 
+ (v >= 0) /\ (v <= (c_2_POW_32 - 1) )
+
+predicate in_16bit_bounds (v: int)
+= 
+ (v >= 0) /\ (v <= (c_2_POW_16 - 1) )
+
+predicate in_32bit_twos_complement_bounds (v: int)
+=
+ let lower_bound = (-1) * c_2_POW_31 in
+ let upper_bound = c_2_POW_31 - 1 in
+ (v >= lower_bound) /\ (v <= upper_bound)
+
+predicate in_16bit_twos_complement_bounds (v: int)
+=
+ let lower_bound = (-1) * c_2_POW_15 in
+ let upper_bound = c_2_POW_15 - 1 in
+ (v >= lower_bound) /\ (v <= upper_bound)    
+
+(* twos complement interpretation of a number (32 bit) *)
+function unsigned_to_signed (n: int): int
+=
+ if (n >= c_2_POW_31) then (n - c_2_POW_32) else (n)
+
+function signed_to_unsigned (n: int): int
+=
+ if (n < 0) then (n + c_2_POW_32) else (n)
+
+(* sign extend signed 16 bit number to twos complement 32 bit number *)
+function sign_extend_16to32 (n: int): int
+=
+ if (n < 0) then (n + c_2_POW_16 + c_SE_MASK_16) else (n)
+
+(* sign extend signed 8 bit twos complement number to twos
+ complement 32 bit number *)
+function sign_extend_8to32 (n: int): int
+=
+ if (n >= c_2_POW_7) then (n + c_SE_MASK_8) else (n)
+
+function all_0_or_1 (n: int): int
+=
+ if (n < 0) then (0xffff_ffff) else (0x0000_0000)
+
+(* b3 will be the most significant byte, b0 the least significant *)
+function build_word_from_bytes (b3: int) (b2: int) (b1: int) (b0: int): int
+=
+ let t0 = (b3 * c_2_POW_8) + b2 in
+ let t1 = (t0 * c_2_POW_8) + b1 in
+ let t2 = (t1 * c_2_POW_8) + b0 in
+ t2
+
+(* stack bounds of MARS Simulator *)
+(* upper bound = stack pointer $sp start value *)
+(* lower bound = stack limit address (not included) *)
+predicate in_stack_bounds (addr: int)
+=
+ let upper_bound = 0x7fff_effc in
+ let lower_bound = 0x1004_0000 in
+ (addr > lower_bound) /\ (addr <= upper_bound)
+
+function bool_or (a:int) (b:int): int
+
+axiom Or_00:
+ forall x y: int. (y=0 /\ x=0) -> (bool_or x y = 0)
+
+axiom Or_11:
+ forall x y: int. (y=1 /\ x=1) -> (bool_or x y = 1)
+
+axiom Or_01:
+ forall x y: int. (y=0 /\ x=1) -> (bool_or x y = 1)
+
+axiom Or_10:
+ forall x y: int. (y=1 /\ x=0) -> (bool_or x y = 1)
+
+function bool_and (a:int) (b:int): int
+
+axiom And_00:
+ forall x y: int. (y=0 /\ x=0) -> (bool_and x y = 0)
+
+axiom And_11:
+ forall x y: int. (y=1 /\ x=1) -> (bool_and x y = 1)
+
+axiom And_01:
+ forall x y: int. (y=0 /\ x=1) -> (bool_and x y = 0)
+
+axiom And_10:
+ forall x y: int. (y=1 /\ x=0) -> (bool_and x y = 0)
+
+
+function bitwise_and (x: int) (y: int): int
+=
+(* split x *)
+ let x0 = mod x 2 in
+ let tx0 = div x 2 in
+ let x1 = mod tx0 2 in
+ let tx1 = div tx0 2 in
+ let x2 = mod tx1 2 in
+ let tx2 = div tx1 2 in
+ let x3 = mod tx2 2 in
+ let tx3 = div tx2 2 in
+ let x4 = mod tx3 2 in
+ let tx4 = div tx3 2 in
+ let x5 = mod tx4 2 in
+ let tx5 = div tx4 2 in
+ let x6 = mod tx5 2 in
+ let tx6 = div tx5 2 in
+ let x7 = mod tx6 2 in
+ let tx7 = div tx6 2 in
+ let x8 = mod tx7 2 in
+ let tx8 = div tx7 2 in
+ let x9 = mod tx8 2 in
+ let tx9 = div tx8 2 in
+ let x10 = mod tx9 2 in
+ let tx10 = div tx9 2 in
+ let x11 = mod tx10 2 in
+ let tx11 = div tx10 2 in
+ let x12 = mod tx11 2 in
+ let tx12 = div tx11 2 in
+ let x13 = mod tx12 2 in
+ let tx13 = div tx12 2 in
+ let x14 = mod tx13 2 in
+ let tx14 = div tx13 2 in
+ let x15 = mod tx14 2 in
+ let tx15 = div tx14 2 in
+ let x16 = mod tx15 2 in
+ let tx16 = div tx15 2 in
+ let x17 = mod tx16 2 in
+ let tx17 = div tx16 2 in
+ let x18 = mod tx17 2 in
+ let tx18 = div tx17 2 in
+ let x19 = mod tx18 2 in
+ let tx19 = div tx18 2 in
+ let x20 = mod tx19 2 in
+ let tx20 = div tx19 2 in
+ let x21 = mod tx20 2 in
+ let tx21 = div tx20 2 in
+ let x22 = mod tx21 2 in
+ let tx22 = div tx21 2 in
+ let x23 = mod tx22 2 in
+ let tx23 = div tx22 2 in
+ let x24 = mod tx23 2 in
+ let tx24 = div tx23 2 in
+ let x25 = mod tx24 2 in
+ let tx25 = div tx24 2 in
+ let x26 = mod tx25 2 in
+ let tx26 = div tx25 2 in
+ let x27 = mod tx26 2 in
+ let tx27 = div tx26 2 in
+ let x28 = mod tx27 2 in
+ let tx28 = div tx27 2 in
+ let x29 = mod tx28 2 in
+ let tx29 = div tx28 2 in
+ let x30 = mod tx29 2 in
+ let tx30 = div tx29 2 in
+ let x31 = mod tx30 2 in
+(* split y *)
+ let y0 = mod y 2 in
+ let ty0 = div y 2 in
+ let y1 = mod ty0 2 in
+ let ty1 = div ty0 2 in
+ let y2 = mod ty1 2 in
+ let ty2 = div ty1 2 in
+ let y3 = mod ty2 2 in
+ let ty3 = div ty2 2 in
+ let y4 = mod ty3 2 in
+ let ty4 = div ty3 2 in
+ let y5 = mod ty4 2 in
+ let ty5 = div ty4 2 in
+ let y6 = mod ty5 2 in
+ let ty6 = div ty5 2 in
+ let y7 = mod ty6 2 in
+ let ty7 = div ty6 2 in
+ let y8 = mod ty7 2 in
+ let ty8 = div ty7 2 in
+ let y9 = mod ty8 2 in
+ let ty9 = div ty8 2 in
+ let y10 = mod ty9 2 in
+ let ty10 = div ty9 2 in
+ let y11 = mod ty10 2 in
+ let ty11 = div ty10 2 in
+ let y12 = mod ty11 2 in
+ let ty12 = div ty11 2 in
+ let y13 = mod ty12 2 in
+ let ty13 = div ty12 2 in
+ let y14 = mod ty13 2 in
+ let ty14 = div ty13 2 in
+ let y15 = mod ty14 2 in
+ let ty15 = div ty14 2 in
+ let y16 = mod ty15 2 in
+ let ty16 = div ty15 2 in
+ let y17 = mod ty16 2 in
+ let ty17 = div ty16 2 in
+ let y18 = mod ty17 2 in
+ let ty18 = div ty17 2 in
+ let y19 = mod ty18 2 in
+ let ty19 = div ty18 2 in
+ let y20 = mod ty19 2 in
+ let ty20 = div ty19 2 in
+ let y21 = mod ty20 2 in
+ let ty21 = div ty20 2 in
+ let y22 = mod ty21 2 in
+ let ty22 = div ty21 2 in
+ let y23 = mod ty22 2 in
+ let ty23 = div ty22 2 in
+ let y24 = mod ty23 2 in
+ let ty24 = div ty23 2 in
+ let y25 = mod ty24 2 in
+ let ty25 = div ty24 2 in
+ let y26 = mod ty25 2 in
+ let ty26 = div ty25 2 in
+ let y27 = mod ty26 2 in
+ let ty27 = div ty26 2 in
+ let y28 = mod ty27 2 in
+ let ty28 = div ty27 2 in
+ let y29 = mod ty28 2 in
+ let ty29 = div ty28 2 in
+ let y30 = mod ty29 2 in
+ let ty30 = div ty29 2 in
+ let y31 = mod ty30 2 in
+(* bitwise AND *)
+ let z0 = bool_and x0 y0 in
+ let z1 = bool_and x1 y1 in
+ let z2 = bool_and x2 y2 in
+ let z3 = bool_and x3 y3 in
+ let z4 = bool_and x4 y4 in
+ let z5 = bool_and x5 y5 in
+ let z6 = bool_and x6 y6 in
+ let z7 = bool_and x7 y7 in
+ let z8 = bool_and x8 y8 in
+ let z9 = bool_and x9 y9 in
+ let z10 = bool_and x10 y10 in
+ let z11 = bool_and x11 y11 in
+ let z12 = bool_and x12 y12 in
+ let z13 = bool_and x13 y13 in
+ let z14 = bool_and x14 y14 in
+ let z15 = bool_and x15 y15 in
+ let z16 = bool_and x16 y16 in
+ let z17 = bool_and x17 y17 in
+ let z18 = bool_and x18 y18 in
+ let z19 = bool_and x19 y19 in
+ let z20 = bool_and x20 y20 in
+ let z21 = bool_and x21 y21 in
+ let z22 = bool_and x22 y22 in
+ let z23 = bool_and x23 y23 in
+ let z24 = bool_and x24 y24 in
+ let z25 = bool_and x25 y25 in
+ let z26 = bool_and x26 y26 in
+ let z27 = bool_and x27 y27 in
+ let z28 = bool_and x28 y28 in
+ let z29 = bool_and x29 y29 in
+ let z30 = bool_and x30 y30 in
+ let z31 = bool_and x31 y31 in
+(* reconstruct word *)
+ let tz0 = z31 in
+ let tz1 = (tz0 * 2) + z30 in
+ let tz2 = (tz1 * 2) + z29 in
+ let tz3 = (tz2 * 2) + z28 in
+ let tz4 = (tz3 * 2) + z27 in
+ let tz5 = (tz4 * 2) + z26 in
+ let tz6 = (tz5 * 2) + z25 in
+ let tz7 = (tz6 * 2) + z24 in
+ let tz8 = (tz7 * 2) + z23 in
+ let tz9 = (tz8 * 2) + z22 in
+ let tz10 = (tz9 * 2) + z21 in
+ let tz11 = (tz10 * 2) + z20 in
+ let tz12 = (tz11 * 2) + z19 in
+ let tz13 = (tz12 * 2) + z18 in
+ let tz14 = (tz13 * 2) + z17 in
+ let tz15 = (tz14 * 2) + z16 in
+ let tz16 = (tz15 * 2) + z15 in
+ let tz17 = (tz16 * 2) + z14 in
+ let tz18 = (tz17 * 2) + z13 in
+ let tz19 = (tz18 * 2) + z12 in
+ let tz20 = (tz19 * 2) + z11 in
+ let tz21 = (tz20 * 2) + z10 in
+ let tz22 = (tz21 * 2) + z9 in
+ let tz23 = (tz22 * 2) + z8 in
+ let tz24 = (tz23 * 2) + z7 in
+ let tz25 = (tz24 * 2) + z6 in
+ let tz26 = (tz25 * 2) + z5 in
+ let tz27 = (tz26 * 2) + z4 in
+ let tz28 = (tz27 * 2) + z3 in
+ let tz29 = (tz28 * 2) + z2 in
+ let tz30 = (tz29 * 2) + z1 in
+ let z = (tz30 * 2) + z0 in
+(* return result *)
+ z
+
+function bitwise_or (x: int) (y: int): int
+=
+(* split x *)
+ let x0 = mod x 2 in
+ let tx0 = div x 2 in
+ let x1 = mod tx0 2 in
+ let tx1 = div tx0 2 in
+ let x2 = mod tx1 2 in
+ let tx2 = div tx1 2 in
+ let x3 = mod tx2 2 in
+ let tx3 = div tx2 2 in
+ let x4 = mod tx3 2 in
+ let tx4 = div tx3 2 in
+ let x5 = mod tx4 2 in
+ let tx5 = div tx4 2 in
+ let x6 = mod tx5 2 in
+ let tx6 = div tx5 2 in
+ let x7 = mod tx6 2 in
+ let tx7 = div tx6 2 in
+ let x8 = mod tx7 2 in
+ let tx8 = div tx7 2 in
+ let x9 = mod tx8 2 in
+ let tx9 = div tx8 2 in
+ let x10 = mod tx9 2 in
+ let tx10 = div tx9 2 in
+ let x11 = mod tx10 2 in
+ let tx11 = div tx10 2 in
+ let x12 = mod tx11 2 in
+ let tx12 = div tx11 2 in
+ let x13 = mod tx12 2 in
+ let tx13 = div tx12 2 in
+ let x14 = mod tx13 2 in
+ let tx14 = div tx13 2 in
+ let x15 = mod tx14 2 in
+ let tx15 = div tx14 2 in
+ let x16 = mod tx15 2 in
+ let tx16 = div tx15 2 in
+ let x17 = mod tx16 2 in
+ let tx17 = div tx16 2 in
+ let x18 = mod tx17 2 in
+ let tx18 = div tx17 2 in
+ let x19 = mod tx18 2 in
+ let tx19 = div tx18 2 in
+ let x20 = mod tx19 2 in
+ let tx20 = div tx19 2 in
+ let x21 = mod tx20 2 in
+ let tx21 = div tx20 2 in
+ let x22 = mod tx21 2 in
+ let tx22 = div tx21 2 in
+ let x23 = mod tx22 2 in
+ let tx23 = div tx22 2 in
+ let x24 = mod tx23 2 in
+ let tx24 = div tx23 2 in
+ let x25 = mod tx24 2 in
+ let tx25 = div tx24 2 in
+ let x26 = mod tx25 2 in
+ let tx26 = div tx25 2 in
+ let x27 = mod tx26 2 in
+ let tx27 = div tx26 2 in
+ let x28 = mod tx27 2 in
+ let tx28 = div tx27 2 in
+ let x29 = mod tx28 2 in
+ let tx29 = div tx28 2 in
+ let x30 = mod tx29 2 in
+ let tx30 = div tx29 2 in
+ let x31 = mod tx30 2 in
+(* split y *)
+ let y0 = mod y 2 in
+ let ty0 = div y 2 in
+ let y1 = mod ty0 2 in
+ let ty1 = div ty0 2 in
+ let y2 = mod ty1 2 in
+ let ty2 = div ty1 2 in
+ let y3 = mod ty2 2 in
+ let ty3 = div ty2 2 in
+ let y4 = mod ty3 2 in
+ let ty4 = div ty3 2 in
+ let y5 = mod ty4 2 in
+ let ty5 = div ty4 2 in
+ let y6 = mod ty5 2 in
+ let ty6 = div ty5 2 in
+ let y7 = mod ty6 2 in
+ let ty7 = div ty6 2 in
+ let y8 = mod ty7 2 in
+ let ty8 = div ty7 2 in
+ let y9 = mod ty8 2 in
+ let ty9 = div ty8 2 in
+ let y10 = mod ty9 2 in
+ let ty10 = div ty9 2 in
+ let y11 = mod ty10 2 in
+ let ty11 = div ty10 2 in
+ let y12 = mod ty11 2 in
+ let ty12 = div ty11 2 in
+ let y13 = mod ty12 2 in
+ let ty13 = div ty12 2 in
+ let y14 = mod ty13 2 in
+ let ty14 = div ty13 2 in
+ let y15 = mod ty14 2 in
+ let ty15 = div ty14 2 in
+ let y16 = mod ty15 2 in
+ let ty16 = div ty15 2 in
+ let y17 = mod ty16 2 in
+ let ty17 = div ty16 2 in
+ let y18 = mod ty17 2 in
+ let ty18 = div ty17 2 in
+ let y19 = mod ty18 2 in
+ let ty19 = div ty18 2 in
+ let y20 = mod ty19 2 in
+ let ty20 = div ty19 2 in
+ let y21 = mod ty20 2 in
+ let ty21 = div ty20 2 in
+ let y22 = mod ty21 2 in
+ let ty22 = div ty21 2 in
+ let y23 = mod ty22 2 in
+ let ty23 = div ty22 2 in
+ let y24 = mod ty23 2 in
+ let ty24 = div ty23 2 in
+ let y25 = mod ty24 2 in
+ let ty25 = div ty24 2 in
+ let y26 = mod ty25 2 in
+ let ty26 = div ty25 2 in
+ let y27 = mod ty26 2 in
+ let ty27 = div ty26 2 in
+ let y28 = mod ty27 2 in
+ let ty28 = div ty27 2 in
+ let y29 = mod ty28 2 in
+ let ty29 = div ty28 2 in
+ let y30 = mod ty29 2 in
+ let ty30 = div ty29 2 in
+ let y31 = mod ty30 2 in
+(* bitwise OR *)
+ let z0 = bool_or x0 y0 in
+ let z1 = bool_or x1 y1 in
+ let z2 = bool_or x2 y2 in
+ let z3 = bool_or x3 y3 in
+ let z4 = bool_or x4 y4 in
+ let z5 = bool_or x5 y5 in
+ let z6 = bool_or x6 y6 in
+ let z7 = bool_or x7 y7 in
+ let z8 = bool_or x8 y8 in
+ let z9 = bool_or x9 y9 in
+ let z10 = bool_or x10 y10 in
+ let z11 = bool_or x11 y11 in
+ let z12 = bool_or x12 y12 in
+ let z13 = bool_or x13 y13 in
+ let z14 = bool_or x14 y14 in
+ let z15 = bool_or x15 y15 in
+ let z16 = bool_or x16 y16 in
+ let z17 = bool_or x17 y17 in
+ let z18 = bool_or x18 y18 in
+ let z19 = bool_or x19 y19 in
+ let z20 = bool_or x20 y20 in
+ let z21 = bool_or x21 y21 in
+ let z22 = bool_or x22 y22 in
+ let z23 = bool_or x23 y23 in
+ let z24 = bool_or x24 y24 in
+ let z25 = bool_or x25 y25 in
+ let z26 = bool_or x26 y26 in
+ let z27 = bool_or x27 y27 in
+ let z28 = bool_or x28 y28 in
+ let z29 = bool_or x29 y29 in
+ let z30 = bool_or x30 y30 in
+ let z31 = bool_or x31 y31 in
+(* reconstruct word *)
+ let tz0 = z31 in
+ let tz1 = (tz0 * 2) + z30 in
+ let tz2 = (tz1 * 2) + z29 in
+ let tz3 = (tz2 * 2) + z28 in
+ let tz4 = (tz3 * 2) + z27 in
+ let tz5 = (tz4 * 2) + z26 in
+ let tz6 = (tz5 * 2) + z25 in
+ let tz7 = (tz6 * 2) + z24 in
+ let tz8 = (tz7 * 2) + z23 in
+ let tz9 = (tz8 * 2) + z22 in
+ let tz10 = (tz9 * 2) + z21 in
+ let tz11 = (tz10 * 2) + z20 in
+ let tz12 = (tz11 * 2) + z19 in
+ let tz13 = (tz12 * 2) + z18 in
+ let tz14 = (tz13 * 2) + z17 in
+ let tz15 = (tz14 * 2) + z16 in
+ let tz16 = (tz15 * 2) + z15 in
+ let tz17 = (tz16 * 2) + z14 in
+ let tz18 = (tz17 * 2) + z13 in
+ let tz19 = (tz18 * 2) + z12 in
+ let tz20 = (tz19 * 2) + z11 in
+ let tz21 = (tz20 * 2) + z10 in
+ let tz22 = (tz21 * 2) + z9 in
+ let tz23 = (tz22 * 2) + z8 in
+ let tz24 = (tz23 * 2) + z7 in
+ let tz25 = (tz24 * 2) + z6 in
+ let tz26 = (tz25 * 2) + z5 in
+ let tz27 = (tz26 * 2) + z4 in
+ let tz28 = (tz27 * 2) + z3 in
+ let tz29 = (tz28 * 2) + z2 in
+ let tz30 = (tz29 * 2) + z1 in
+ let z = (tz30 * 2) + z0 in
+(* return result *)
+ z
+
+(* INSTRUCTIONS *)
+(* each instruction is an abstract procedure *)
+
+(* ARITHMETIC INSTRUCTIONS *)
+
+(* add $t1, $t2, $t3 *)
+(* Addition with overflow: set $t1 to $t2 + $t3 *)
+(* MIPS ISA A-28 *)
+val add (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ requires {"expl: overflow check" 
+  let sx = (unsigned_to_signed x) in
+  let sy = (unsigned_to_signed y) in
+  let r = sx + sy in
+  in_32bit_twos_complement_bounds r  }
+ ensures { result = (mod (x + y) c_2_POW_32)  }
+
+(* addi $t1, $t2, -100 *)
+(* Addition immediate with overflow: set $t1 to $t2 + (signed 16-bit
+ immediate *)
+(* MIPS ISA A-29 *)
+val addi (x: int) (imm: int): int
+ requires {"expl: source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: immediate in bounds"
+  in_16bit_twos_complement_bounds imm}
+ requires {"expl: overflow check" 
+  let sx = (unsigned_to_signed x) in
+  let r = sx + imm in
+  in_32bit_twos_complement_bounds r  }
+ ensures {
+  let se_imm = (sign_extend_16to32 imm) in 
+  result = (mod (x + se_imm) c_2_POW_32)  }
+
+(* addu $t1, $t2, $t3 *)
+(* Addition unsigned without overflow: set $t1 to $t2 + $t3, no overflow *)
+(* MIPS ISA A-31 *)
+val addu (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures { result = (mod (x + y) c_2_POW_32)  }
+
+(* addiu $t1, $t2, -100 *)
+(* Addition immediate unsigned without overflow: set $t1 to $t2 + (signed
+ 16-bit immediate, no overflow *)
+(* MIPS ISA A-30 *)
+val addiu (x: int) (imm: int): int
+ requires {"expl: source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: immediate in bounds"
+  in_16bit_twos_complement_bounds imm}
+ ensures {
+  let se_imm = (sign_extend_16to32 imm) in 
+  result = (mod (x + se_imm) c_2_POW_32)  }
+
+(* sub $t1, $t2, $t3 *)
+(* Subtraction with overflow: set $t1 to $t2 - $t3 *)
+(* MIPS ISA A-144 *)
+val sub (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ requires {"expl: overflow check" 
+  let sx = (unsigned_to_signed x) in
+  let sy = (unsigned_to_signed y) in
+  let r = sx - sy in
+  in_32bit_twos_complement_bounds r  }
+ ensures { result = (mod (x - y) c_2_POW_32)  }
+
+(* subu $t1, $t2, $t3 *)
+(* Subtraction unsigned without overflow: set $t1 to $t2 - $t3,
+ no overflow *)
+(* MIPS ISA A-145 *)
+val subu (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures { result = (mod (x - y) c_2_POW_32)  }
+
+(* mult $t1, $t2 *)
+(* Multiplication: Set hi to high-order 32 bits, lo to low-order 32 bits
+ of the product of $t1 and $t2 *)
+(* MIPS ISA A-111 *)
+val mult (x: int) (y: int) (lo: ref int) (hi: ref int): unit
+ writes {lo, hi}
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ requires {"expl: overflow check" 
+  let sx = (unsigned_to_signed x) in
+  let sy = (unsigned_to_signed y) in
+  let r = sx * sy in
+  in_32bit_twos_complement_bounds r  }
+ ensures {
+  let sx = (unsigned_to_signed x) in
+  let sy = (unsigned_to_signed y) in
+  let r = sx * sy in
+  (!lo = (signed_to_unsigned r) ) /\ (!hi = (all_0_or_1 r) ) }
+
+(* multu $t1, $t2 *)
+(* Multiplication unsigned: Set hi to high-order 32 bits, lo to low-order
+ 32 bits of the product of unsigned $t1 and $t2 *)
+(* MIPS ISA A-112 *)
+val multu (x: int) (y: int) (lo: ref int) (hi: ref int): unit
+ writes {lo, hi}
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures {
+  let res = x * y in
+  (!lo = (mod res c_2_POW_32) ) /\ (!hi = (div res c_2_POW_32) ) }
+
+(* divu $t1, $t2 *)
+(* Division unsigned without overflow: Divide unsigned $t1 by $t2
+ then set lo to quotient and hi to remainder *)
+(* MIPS ISA A-60 *)
+val divu (x: int) (y: int) (lo: ref int) (hi: ref int): unit
+ writes {lo, hi}
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ requires {"expl: division by zero check"
+  not (y = 0) }
+ ensures { (!lo = (div x y) ) /\ (!hi = (mod x y) ) }
+
+(* mfhi $t1 *)
+(* Move from hi register: Set $t1 to contents of hi *)
+(* MIPS ISA A-105 *)
+val mfhi (hi_val: int): int
+ requires {"expl: hi register in bounds" 
+  in_32bit_bounds hi_val}
+ ensures { result = hi_val }
+
+(* mflo $t1 *)
+(* Move from lo register: Set $t1 to contents of lo *)
+(* MIPS ISA A-106 *)
+val mflo (lo_val: int): int
+ requires {"expl: lo register in bounds" 
+  in_32bit_bounds lo_val}
+ ensures { result = lo_val }
+
+(* lui $t1, 100 *)
+(* Load upper immediate: Set high-order 16 bits of $t1 to 16-bit immediate
+ and low-order 16 bits to 0 *)
+(* MIPS ISA A-93 *)
+val lui (uimm: int): int
+ requires {"expl: unsigned immediate in bounds" 
+  in_16bit_bounds uimm}
+ ensures { result = uimm * c_2_POW_16 } 
+
+(* srl $t1, $t2, 10 *)
+(* Shift right logical: Set $t1 to result of shifting $t2 right by number
+ of bits specified by immediate *)
+(* MIPS ISA A-142 *)
+val srl (x: int) (sa: int): int
+ requires {"expl: source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: shift amount in bounds"
+  (sa >= 0) /\ (sa <= 31) }
+ ensures {
+  ( (sa = 0) -> (result = x) ) /\
+  ( (sa = 1) -> (result = (div x 2) ) ) /\
+  ( (sa = 2) -> (result = (div x 4) ) ) /\ 
+  ( (sa = 3) -> (result = (div x 8) ) ) /\
+  ( (sa = 4) -> (result = (div x 16) ) ) /\ 
+  ( (sa = 5) -> (result = (div x 32) ) ) /\
+  ( (sa = 6) -> (result = (div x 64) ) ) /\
+  ( (sa = 7) -> (result = (div x 128) ) ) /\
+  ( (sa = 8) -> (result = (div x 256) ) ) /\
+  ( (sa = 9) -> (result = (div x 512) ) ) /\
+  ( (sa = 10) -> (result = (div x 1_024) ) ) /\
+  ( (sa = 11) -> (result = (div x 2_048) ) ) /\
+  ( (sa = 12) -> (result = (div x 4_096) ) ) /\
+  ( (sa = 13) -> (result = (div x 8_192) ) ) /\
+  ( (sa = 14) -> (result = (div x 16_384) ) ) /\
+  ( (sa = 15) -> (result = (div x 32_768) ) ) /\
+  ( (sa = 16) -> (result = (div x 65_536) ) ) /\
+  ( (sa = 17) -> (result = (div x 131_072) ) ) /\
+  ( (sa = 18) -> (result = (div x 262_144) ) ) /\
+  ( (sa = 19) -> (result = (div x 524_288) ) ) /\
+  ( (sa = 20) -> (result = (div x 1_048_576) ) ) /\
+  ( (sa = 21) -> (result = (div x 2_097_152) ) ) /\
+  ( (sa = 22) -> (result = (div x 4_194_304) ) ) /\
+  ( (sa = 23) -> (result = (div x 8_388_608) ) ) /\
+  ( (sa = 24) -> (result = (div x 16_777_216) ) ) /\
+  ( (sa = 25) -> (result = (div x 33_554_432) ) ) /\
+  ( (sa = 26) -> (result = (div x 67_108_864) ) ) /\
+  ( (sa = 27) -> (result = (div x 134_217_728) ) ) /\
+  ( (sa = 28) -> (result = (div x 268_435_456) ) ) /\
+  ( (sa = 29) -> (result = (div x 536_870_912) ) ) /\
+  ( (sa = 30) -> (result = (div x 1_073_741_824) ) ) /\
+  ( (sa = 31) -> (result = (div x 2_147_483_648) ) ) 
+  }
+
+
+(* sll $t1, $t2, 10 *)
+(* Shift left logical: Set $t1 to result of shifting $t2 left by number
+ of bits specified by immediate *)
+(* MIPS ISA A-134 *)
+val sll (x: int) (sa: int): int
+ requires {"expl: source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: shift amount in bounds"
+  (sa >= 0) /\ (sa <= 31) }
+ ensures {
+  ( (sa = 0) -> (result = x) ) /\
+  ( (sa = 1) -> (result = mod (x * 2) c_2_POW_32) ) /\
+  ( (sa = 2) -> (result = mod (x * 4) c_2_POW_32) ) /\ 
+  ( (sa = 3) -> (result = mod (x * 8) c_2_POW_32) ) /\
+  ( (sa = 4) -> (result = mod (x * 16) c_2_POW_32) ) /\ 
+  ( (sa = 5) -> (result = mod (x * 32) c_2_POW_32) ) /\
+  ( (sa = 6) -> (result = mod (x * 64) c_2_POW_32) ) /\
+  ( (sa = 7) -> (result = mod (x * 128) c_2_POW_32) ) /\
+  ( (sa = 8) -> (result = mod (x * 256) c_2_POW_32) ) /\
+  ( (sa = 9) -> (result = mod (x * 512) c_2_POW_32) ) /\
+  ( (sa = 10) -> (result = mod (x * 1_024) c_2_POW_32) ) /\
+  ( (sa = 11) -> (result = mod (x * 2_048) c_2_POW_32) ) /\
+  ( (sa = 12) -> (result = mod (x * 4_096) c_2_POW_32) ) /\
+  ( (sa = 13) -> (result = mod (x * 8_192) c_2_POW_32) ) /\
+  ( (sa = 14) -> (result = mod (x * 16_384) c_2_POW_32) ) /\
+  ( (sa = 15) -> (result = mod (x * 32_768) c_2_POW_32) ) /\
+  ( (sa = 16) -> (result = mod (x * 65_536) c_2_POW_32) ) /\
+  ( (sa = 17) -> (result = mod (x * 131_072) c_2_POW_32) ) /\
+  ( (sa = 18) -> (result = mod (x * 262_144) c_2_POW_32) ) /\
+  ( (sa = 19) -> (result = mod (x * 524_288) c_2_POW_32) ) /\
+  ( (sa = 20) -> (result = mod (x * 1_048_576) c_2_POW_32) ) /\
+  ( (sa = 21) -> (result = mod (x * 2_097_152) c_2_POW_32) ) /\
+  ( (sa = 22) -> (result = mod (x * 4_194_304) c_2_POW_32) ) /\
+  ( (sa = 23) -> (result = mod (x * 8_388_608) c_2_POW_32) ) /\
+  ( (sa = 24) -> (result = mod (x * 16_777_216) c_2_POW_32) ) /\
+  ( (sa = 25) -> (result = mod (x * 33_554_432) c_2_POW_32) ) /\
+  ( (sa = 26) -> (result = mod (x * 67_108_864) c_2_POW_32) ) /\
+  ( (sa = 27) -> (result = mod (x * 134_217_728) c_2_POW_32) ) /\
+  ( (sa = 28) -> (result = mod (x * 268_435_456) c_2_POW_32) ) /\
+  ( (sa = 29) -> (result = mod (x * 536_870_912) c_2_POW_32) ) /\
+  ( (sa = 30) -> (result = mod (x * 1_073_741_824) c_2_POW_32) ) /\
+  ( (sa = 31) -> (result = mod (x * 2_147_483_648) c_2_POW_32) ) 
+  }
+
+(* slt $t1, $t2, $t3 *)
+(* Set less than: If $t2 is less than $t3, then set $t1 to 1 else set $t1
+ to 0 *)
+(* MIPS ISA A-136 *)
+val slt (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures {
+  let sx = (unsigned_to_signed x) in
+  let sy = (unsigned_to_signed y) in
+  ( (sx < sy) -> (result = 1) ) /\
+  ( (not (sx < sy)) -> (result = 0) ) 
+ }
+
+(* slti $t1, $t2, -100 *)
+(* Set less than immediate: If $t2 is less than sign-extended 16-bit
+ immediate, then set $t1 to 1 else set $t1 to 0 *)
+(* MIPS ISA A-137 *)
+val slti (x: int) (imm: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: immediate in bounds"
+  in_16bit_twos_complement_bounds imm}
+ ensures {
+  let sx = (unsigned_to_signed x) in
+  ( (sx < imm) -> (result = 1) ) /\
+  ( (not (sx < imm)) -> (result = 0) )   
+ }
+
+(* sltiu $t1, $t2, -100 *)
+(* Set less than immediate unsigned: If $t2 is less than sign-extended 16-
+bit immediate using unsigned comparison, then set $t1 to 1 else set $t1 to 0 *)
+(* MIPS ISA A-138 *)
+val sltiu (x: int) (imm: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: immediate in bounds"
+  in_16bit_twos_complement_bounds imm}
+ ensures {
+  let se_imm = (sign_extend_16to32 imm) in
+  ( (x < se_imm) -> (result = 1) ) /\
+  ( (not (x < se_imm)) -> (result = 0) )  
+ }
+
+(* sltu $t1, $t2, $t3 *)
+(* Set less than unsigned: If $t2 is less than $t3 using unsigned
+ comparison, then set $t1 to 1 else set $t1 to 0 *)
+(* MIPS ISA A-139 *)
+val sltu (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures {
+  ( (x < y) -> (result = 1) ) /\
+  ( (not (x < y)) -> (result = 0) )
+ }
+
+(* DATA TRANSFER INSTRUCTIONS *)
+
+(* lw $t1, -100 ($t2) *)
+(* Load word: Set $t1 to contents of effective memory word address *)
+(* MIPS ISA A-94 *)
+val lw (mem: map int int) (offset: int) (base: int): int
+ requires {"expl: base register in bounds" 
+  in_32bit_bounds base}
+ requires {"expl: offset immediate in bounds"
+  in_16bit_twos_complement_bounds offset}
+ requires {"expl: effective address word aligned"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  (mod eff_addr 4) = 0 }
+ 
+ requires {"expl: effective address in stack bounds"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  in_stack_bounds eff_addr }
+ 
+ ensures {
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  let word_addr = (div eff_addr 4) in
+  result = (get mem word_addr) }
+
+(* sw $t1, -100 ($t2) *)
+(* Store word: Store contents of $t1 into effective memory word address *)
+(* MIPS ISA A-146 *)
+val sw (mem: map int int) (v: int) (offset: int) (base: int): (map int int)
+ requires {"expl: source register in bounds" 
+  in_32bit_bounds v}
+ requires {"expl: base register in bounds" 
+  in_32bit_bounds base}
+ requires {"expl: offset immediate in bounds"
+  in_16bit_twos_complement_bounds offset}
+ requires {"expl: effective address word aligned"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  (mod eff_addr 4) = 0 }
+
+ requires {"expl: effective address in stack bounds"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  in_stack_bounds eff_addr }
+ 
+ ensures {
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  let word_addr = (div eff_addr 4) in
+  result = (set mem word_addr v) }
+
+(* lb $t1, -100 ($t2) *)
+(* Load byte: Set $t1 to sign-extended 8-bit value from effective memory
+ byte address *)
+(* MIPS ISA A-78 *)
+val lb (mem: map int int) (offset: int) (base: int): int
+ requires {"expl: base register in bounds" 
+  in_32bit_bounds base}
+ requires {"expl: offset immediate in bounds"
+  in_16bit_twos_complement_bounds offset}
+
+ requires {"expl: effective address in stack bounds"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  in_stack_bounds eff_addr }
+
+ ensures {
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  let word_addr = (div eff_addr 4) in
+  let byte_offset = (mod eff_addr 4) in
+  let word_val = (get mem word_addr) in
+  let byte0 = (mod word_val c_2_POW_8) in
+  let t1 = (div word_val c_2_POW_8) in
+  let byte1 = (mod t1 c_2_POW_8) in
+  let t2 = (div t1 c_2_POW_8) in
+  let byte2 = (mod t2 c_2_POW_8) in
+  let t3 = (div t2 c_2_POW_8) in
+  let byte3 = (mod t3 c_2_POW_8) in
+  ( (byte_offset = 0) -> (result = sign_extend_8to32 byte0) ) /\
+  ( (byte_offset = 1) -> (result = sign_extend_8to32 byte1) ) /\
+  ( (byte_offset = 2) -> (result = sign_extend_8to32 byte2) ) /\
+  ( (byte_offset = 3) -> (result = sign_extend_8to32 byte3) ) 
+  }
+
+(* lbu $t1, -100 ($t2) *)
+(* Load byte unsigned: Set $t1 to zero-extended 8-bit value from effective
+ memory byte address *)
+(* MIPS ISA A-78 *)
+val lbu (mem: map int int) (offset: int) (base: int): int
+ requires {"expl: base register in bounds" 
+  in_32bit_bounds base}
+ requires {"expl: offset immediate in bounds"
+  in_16bit_twos_complement_bounds offset}
+
+ requires {"expl: effective address in stack bounds"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  in_stack_bounds eff_addr }
+
+ ensures {
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  let word_addr = (div eff_addr 4) in
+  let byte_offset = (mod eff_addr 4) in
+  let word_val = (get mem word_addr) in
+  let byte0 = (mod word_val c_2_POW_8) in
+  let t1 = (div word_val c_2_POW_8) in
+  let byte1 = (mod t1 c_2_POW_8) in
+  let t2 = (div t1 c_2_POW_8) in
+  let byte2 = (mod t2 c_2_POW_8) in
+  let t3 = (div t2 c_2_POW_8) in
+  let byte3 = (mod t3 c_2_POW_8) in
+  ( (byte_offset = 0) -> (result = byte0) ) /\
+  ( (byte_offset = 1) -> (result = byte1) ) /\
+  ( (byte_offset = 2) -> (result = byte2) ) /\
+  ( (byte_offset = 3) -> (result = byte3) ) 
+  }
+
+(* sb $t1, -100 ($t2) *)
+(* Store byte: Store the low-order 8 bits of $t1 into the effective memory
+ byte address *)
+(* MIPS ISA A-119 *)
+val sb (mem: map int int) (v: int) (offset: int) (base: int): (map int int)
+ requires {"expl: source register in bounds" 
+  in_32bit_bounds v}
+ requires {"expl: base register in bounds" 
+  in_32bit_bounds base}
+ requires {"expl: offset immediate in bounds"
+  in_16bit_twos_complement_bounds offset}
+ 
+ requires {"expl: effective address in stack bounds"
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  in_stack_bounds eff_addr }
+
+ ensures {
+  let se_off = (sign_extend_16to32 offset) in 
+  let eff_addr = (mod (base + se_off) c_2_POW_32) in
+  let word_addr = (div eff_addr 4) in
+  let byte_offset = (mod eff_addr 4) in
+  let word_val = (get mem word_addr) in
+  let old_byte0 = (mod word_val c_2_POW_8) in
+  let t1 = (div word_val c_2_POW_8) in
+  let old_byte1 = (mod t1 c_2_POW_8) in
+  let t2 = (div t1 c_2_POW_8) in
+  let old_byte2 = (mod t2 c_2_POW_8) in
+  let t3 = (div t2 c_2_POW_8) in
+  let old_byte3 = (mod t3 c_2_POW_8) in 
+  let new_byte = (mod v c_2_POW_8) in
+  let byte_0_replaced = build_word_from_bytes old_byte3 old_byte2 old_byte1 new_byte in
+  let byte_1_replaced = build_word_from_bytes old_byte3 old_byte2  new_byte old_byte0 in
+  let byte_2_replaced = build_word_from_bytes old_byte3 new_byte old_byte1 old_byte0 in
+  let byte_3_replaced = build_word_from_bytes new_byte old_byte2 old_byte1 old_byte0 in
+  ( (byte_offset = 0) -> (result = set mem word_addr byte_0_replaced) ) /\
+  ( (byte_offset = 1) -> (result = set mem word_addr byte_1_replaced) ) /\
+  ( (byte_offset = 2) -> (result = set mem word_addr byte_2_replaced) ) /\
+  ( (byte_offset = 3) -> (result = set mem word_addr byte_3_replaced) ) 
+  }
+
+(* BITWISE LOGICAL INSTRUCTIONS *)
+
+(* and $t1, $t2, $t3 *)
+(* Bitwise AND: Set $t1 to bitwise AND of $t2 and $t3 *)
+(* MIPS ISA A-32 *)
+val and (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures { result = bitwise_and x y }
+
+(* andi $t1, $t2, 100 *)
+(* Bitwise AND immediate: Set $t1 to bitwise AND of $t2 and zero-extended
+16-bit immediate *)
+(* MIPS ISA A-33 *)
+val andi (x: int) (imm: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: immediate in bounds"
+  in_16bit_bounds imm}
+ ensures { result = bitwise_and x imm }
+
+(* or $t1, $t2, $t3 *)
+(* Bitwise OR: Set $t1 to bitwise OR of $t2 and $t3 *)
+(* MIPS ISA A-114 *)
+val or (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures { result = bitwise_or x y }
+
+(* ori $t1, $t2, 100 *)
+(* Bitwise OR immediate: Set $t1 to bitwise OR of $t2 and zero-extended
+16-bit immediate *)
+(* MIPS ISA A-115 *)
+val ori (x: int) (imm: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: immediate in bounds"
+  in_16bit_bounds imm}
+ ensures { result = bitwise_or x imm }
+
+(* CONDITIONAL BRANCHES *)
+
+(* beq $t1, $t2, label *)
+(* Branch if equal: Branch to statement at label's address if $t1 and $t2
+ are equal *)
+(* MIPS ISA A-34 *)
+val beq (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures {
+  ( (x = y) -> (result = 1) ) /\
+  ( (not (x = y)) -> (result = 0) ) 
+ }
+
+(* bne $t1, $t2, label *)
+(* Branch if not equal: Branch to statement at label's address if $t1 and
+ $t2 are not equal *)
+(* MIPS ISA A-48 *)
+val bne (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x}
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y}
+ ensures {
+  ( (x = y) -> (result = 0) ) /\
+  ( (not (x = y)) -> (result = 1) ) 
+ }
+
+(* effect of jal instruction *)
+val touch (ra: ref int) : unit
+ writes {ra}
+ requires {in_32bit_bounds !ra}
+ ensures {in_32bit_bounds !ra}
+
+end

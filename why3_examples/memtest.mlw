@@ -1,0 +1,13 @@
+module M
+
+use import int.Int
+use import map.Map
+use import ref.Ref
+
+let f (mem: ref (map int int) ) : unit
+=
+ mem := set !mem 5 33;
+ assert { (get !mem 5) = 33 };
+ ()
+
+end 

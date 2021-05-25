@@ -1,0 +1,12 @@
+module MyModule
+
+(* Why3 library *)
+use import int.Int
+(* User defined library*)
+use a.A
+use import b.B
+
+(* x from A; y from B *)
+function sum: int = A.x + y
+
+end

@@ -1,0 +1,277 @@
+%\label{ch:test}
+We start our verification with an annotated assembly program. This program is 
+acceptable as input for the MARS MIPS simulator \footnote{\verb"courses.missouristate.edu/KenVollmar/mars"}. 
+Here is an excerpt from an annotated example program: 
+\begin{lstlisting}
+main:
+addi $sp, $sp, -4
+sw $ra, 0 ($sp)
+addi $t0, $zero, 10
+addi $t1, $zero, 5
+#@ call
+#> simple_addition t0 t1 v1 ra;
+jal simple_addition
+#> assert {"expl: v1 in [0, 20]" (!v1 >= 0) /\ (!v1 <= 20)};
+\end{lstlisting}
+Furthermore the assembly program can be converted
+to a WhyML module with the help of a simple translation program called \verb"mips2why3".
+The last code snippet is translated to:
+\begin{lstlisting}
+sp := addi (!sp) (-4);
+mem := sw (!mem) (!ra) (0) (!sp);
+t0 := addi (0) (10);
+t1 := addi (0) (5);
+touch (ra);
+simple_addition t0 t1 v1 ra;
+assert {"expl: v1 in [0, 20]" (!v1 >= 0) /\ (!v1 <= 20)};
+\end{lstlisting}
+The definition of the MIPS instructions is in a separate Why3 module and is
+imported at the beginning of the program.
+\begin{lstlisting}
+#> use import mips.MIPS
+\end{lstlisting}
+Since the program is a WhyML module now, it can be verified with Why3.
+The translation program (\verb"mips2why3") and the MIPS instruction model were
+written as part of this work. They are available at the GitHub repository.
+
+\section{MIPS Instruction Set Model}
+
+The MIPS instruction set model is a Why3 module. Apart from the definition of 
+constants and helper functions it contains abstract WhyML functions that provide 
+the specification of the MIPS instructions. 
+This, for example, is the definition of the \verb"add" instruction:
+\begin{lstlisting}
+val add (x: int) (y: int): int
+ requires {"expl: first source register in bounds" 
+  in_32bit_bounds x }
+ requires {"expl: second source register in bounds"
+  in_32bit_bounds y }
+ requires {"expl: overflow check" 
+  let sx = (unsigned_to_signed x) in
+  let sy = (unsigned_to_signed y) in
+  let r = sx + sy in
+  in_32bit_twos_complement_bounds r }
+ ensures { result = (mod (x + y) c_2_POW_32) }
+\end{lstlisting}
+WhyML functions with a function body start with the \verb"let" keyword (see p. \pageref{function}).
+Abstract functions, on the contrary, do not have a body and begin with the 
+\verb"val" keyword. Specification constructs (assertions, preconditions, postconditions,
+loop invariants and variants) can contain strings that describe them. 
+\begin{lstlisting}
+"expl: first source register in bounds" 
+\end{lstlisting}
+When such a string begins with "expl:", its content appears in an interactive Why3 IDE session
+instead of the default name for an assertion. \\
+Furthermore let bindings can be used in Why3 to decompose an expression into smaller parts. 
+\begin{lstlisting}
+let sx = (unsigned_to_signed x) in
+let sy = (unsigned_to_signed y) in
+let r = sx + sy in
+ in_32bit_twos_complement_bounds r
+\end{lstlisting}
+Let bindings are similar to local constant declarations in imperative languages. \\
+Here is an example that shows how a MIPS \verb"add" instruction in MARS syntax is mapped to a WhyML function
+invocation:
+\begin{lstlisting}
+add $t2, $t0, $t1  # MARS syntax
+
+t2 := add (!t0) (!t1);  # WhyML translation
+\end{lstlisting}
+As we can see in the example above, a MIPS register becomes a reference in WhyML (see p. \pageref{ref}). \\
+The MIPS theory module contains the definition of the following MIPS instructions. 
+They were implemented according to the description in the MIPS ISA Reference \cite{mipsisa}.\\
+\vspace{0.2cm}
+\begin{tabular} {|l||l|}
+\hline
+Addition &  \verb"add, addi, addu, addiu" \\
+Subtraction &  \verb"sub, subu" \\
+Multiplication & \verb"mult, multu" \\
+Division & \verb"divu" \\
+Helper Instructions & \verb"mfhi, mflo, lui" \\
+Bit Shifts & \verb"srl, sll" \\
+Comparison Operations & \verb"slt, slti, sltiu, sltu" \\
+Data Transfer &  \verb"lw, sw, lb, lbu, sb" \\ 
+Bitwise Logical Instructions & \verb"and, andi, or, ori" \\ 
+Conditional Branches & \verb"beq, bne" \\
+\hline
+\end{tabular} \\
+The \verb"j", \verb"jal" and \verb"jr" instructions are not modeled explicitly but implicitly 
+through the control flow of WhyML. 
+The next parts describe the general concepts of the MIPS theory. 
+%\pageref{ch:test}
+More information can be found on GitHub.
+
+\subsection{Euclidean Modulo Arithmetic}
+To describe arithmetic instructions we need the Euclidean modulo operation.
+Modulo arithmetic describes integer division. The core parts of this theory are
+the two functions $\mathrm{div}(a,n)$ and $\mathrm{mod}(a, n)$. The function $\mathrm{div}(a,n)$ is the result
+of an integer division and $\mathrm{mod}(a, n)$ is the remainder. Essentially these functions
+are defined by the following equation.
+\[ a = n * \mathrm{div}(a, n) + \mathrm{mod}(a, n)\]
+There exist numerous conventions that define the functions mod and div. These conventions
+define different rules for rounding, resulting in different function results in certain cases.
+Nevertheless all conventions lead to the same results when $a$ and $n$ are positive \cite{eucmod}.
+In this work only the Euclidean convention will be used. Why3 has a built-in theory 
+for Euclidean division.
+\begin{lstlisting}
+use import int.EuclideanDivision
+\end{lstlisting}
+There it defines the div and mod functions.
+\begin{lstlisting}
+function div int int : int
+function mod int int : int
+\end{lstlisting}
+The documentation of the theory says that the result of the mod function must always be non-negative. 
+The result of the division is rounded down to the nearest integer when the divisor $n$ is positive.
+The result is rounded up when $n$ is negative. In this work $n$ will always be positive. 
+We can try to compute $\mathrm{mod}(7, 3)$ and $\mathrm{div}(7,3)$ according to this definition. Computing $7 / 3$ leads to
+$2.\overline{3}$. Since $n$ is positive we round down to the nearest integer and get $\mathrm{div}(7, 3) = 2$. To compute the 
+remainder we substitute $a$, $n$ and $\mathrm{div}(a, n)$ in the above equation. We get $7 = 3 * 2 + \mathrm{mod}(7, 3)$ 
+and solving the equation for $\mathrm{mod}(7, 3)$ leads to $\mathrm{mod}(7, 3) = 1$. \\
+Now we can do the same for $-7$. Thus $-7 / 3$ is $-2.\overline{3}$ and rounding leads to $\mathrm{div}(-7,3) = -3$. And
+$-7 = 3 * (-3) + \mathrm{mod}(-7, 3)$ leads to $\mathrm{mod}(-7, 3) = 2$.\\
+The built-in theory of Why3 leads to the same results.
+\begin{lstlisting}
+assert { (div 7 3) = 2 };
+assert { (mod 7 3) = 1 };
+assert { (div (-7) 3) = -3 };
+assert { (mod (-7) 3) = 2};
+\end{lstlisting}
+We need this theory because the arithmetic logical unit (ALU) of a processor
+performs Euclidean modulo arithmetic. Essentially a calculation like $ 0 - 1 $ means
+$ \mathrm{mod}( (0 - 1), 2^{n} )$ where $n$ is the number of bits in a register.
+So we get the characteristic $ 0 - 1 = 2^{n}-1 $ as result of our computation.
+The example below shows how the mod function behaves for $n=3$.\vspace{0.2cm}
+
+\begin{tabular} {|c||c|c|c|c|c|c|c|c|c|c|c|c|c|c|c|}
+ \hline
+ $i$ & -7 & -6 & -5 & -4 & -3 & -2 & -1 & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+ $\mathrm{mod}(i, 8)$ & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+ \hline
+\end{tabular} \\
+
+\subsection{Addition and Subtraction}
+
+All MIPS instructions for addition and subtraction, whether unsigned or not, 
+perform essentially the same operation, an addition or subtraction modulo $2^{32}$. 
+The only difference is, that in the case of a signed operation the result is interpreted differently. 
+In our MIPS theory a register (of type
+\verb"ref int") holds a 32-bit unsigned number. So the value of a register is always in the range $[0, 2^{32}-1]$. 
+Each instruction has an appropriate precondition to ensure that this assumption holds. 
+When we want to interpret the
+content of a register as a signed value we can use the \verb"unsigned_to_signed" conversion function.
+\begin{lstlisting}
+t0 := 0xffff_ffff;
+assert { (unsigned_to_signed !t0) = -1 }; 
+\end{lstlisting}  
+An overflow check is introduced where needed. To check for overflow the calculation is performed with unbounded integers to
+see whether the result fits in the bounds of a 32-bit register.
+
+\subsection{Multiplication and Division}
+
+The instructions for multiplication and division store their results into the \verb"hi" an \verb"lo" registers. The \verb"multu" 
+instruction for example performs a multiplication and stores the most significant 32 bits of the result in \verb"hi"
+and the least significant 32 bits in \verb"lo". No overflow can occur since 64 bits are enough to store the product of
+ two 32-bit numbers. Division stores the quotient into the \verb"lo" and the remainder into the \verb"hi" register. 
+ A check is introduced that no division by zero occurs.\\
+Note that the registers \verb"hi" and \verb"lo" are passed as references and not by value like most other instruction operands.
+\begin{lstlisting}
+val multu (x: int) (y: int) (lo: ref int) (hi: ref int): unit
+\end{lstlisting}
+Since the function is abstract, Why3 is not able to analyze the function body to determine whether \verb"lo" and \verb"hi" are
+changed during evaluation. To provide this information we have to specify the data flow for the function manually.
+\begin{lstlisting}
+writes {lo, hi}
+\end{lstlisting}
+
+\subsection{Bit Shifts}
+
+Bit shifts correspond to a multiplication or division of the register value by a power of 2.
+A shift right (\verb"srl") is equivalent to a division by $2^{n}$ where $n$ is the number of bits shifted.
+A shift left (\verb"sll") is equivalent to a multiplication by $2^{n}$. Arithmetic overflow does not occur.
+The upper bits, in the case of a left shift, or the lower bits, in the case of a right shift, are
+discarded instead.
+
+\subsection{Comparison Operations}
+
+The comparison operations compare two values and set a register value according to the result. The destination
+register is set to 1 if the comparison evaluated to \verb"True". It is set to 0 if the comparison evaluated to \verb"False".
+So the destination register is a "boolean variable". The concept of the comparison instructions is simple.
+Nevertheless there are subtle differences concerning signed and unsigned operations. Furthermore sign extension
+of immediate values has to be considered.   
+
+\subsection{Data Transfer}
+
+For a model of the data transfer instructions we need a data structure that is suitable to describe the 
+random access memory. In Why3 we can use the \verb"map" \verb"int" \verb"int" instantiation of the generic map type from the standard
+library.
+\begin{lstlisting}
+use import map.Map
+\end{lstlisting}
+The type \verb"map" \verb"int" \verb"int" can be described as an unbound array of integers that is indexed by integers.
+After the instantiation we have these two functions to work with a map:
+\begin{lstlisting}
+function get (m: (map int int)) (i: int) : int
+function set (m: (map int int)) (i: int) 
+             (v: int) : (map int int)
+\end{lstlisting}
+The get function returns the value in the map m stored at position i. The set function replaces the value
+at position i of a map m with a new value v. Doing this, the set function does not change the original map but
+returns a new map instead. The map theory of Why3 describes this behavior which is typical for arrays in 
+programming. Consequently we can perform write and read accesses like in the following example.
+\begin{lstlisting}
+let f (m: ref (map int int) ) : unit
+=
+ m := set !m 5 33;
+ assert { (get !m 5) = 33 };
+ ()
+\end{lstlisting}
+This is also the concept behind the Why3 model for the data transfer instructions. Note that the stored elements
+in the map are word values. Bytes can be addressed in this configuration by getting a word value and selecting
+the appropriate byte by div and mod operations. Doing this, it has to be considered that MIPS is Little Endian \footnote{\verb"en.wikipedia.org/wiki/Endianness"}. \\
+Numerous checks are also made in the specification of the data transfer instructions. It is checked whether the
+memory access is within stack bounds. Furthermore word alignment is checked for the \verb"lw" and \verb"sw" instructions.  
+
+\subsection{Bitwise Logical Instructions}
+
+The bitwise logical instructions can be used to perform boolean operations or bit masking. The result of the 
+bitwise operations is achieved in the Why3 model by chopping the register values into single bits by div and mod
+operations. Then the corresponding boolean operation (and, or) is applied to the bits. Finally the 32-bit result
+is reconstructed from the bits by multiplication and addition. 
+
+\subsection{Conditional Branches}
+
+Conditional branch instructions jump to a program point when a condition is met and execute the next instruction
+when the condition is not met. Their Why3 equivalents return 1 if they would branch and 0 if they would not. The
+value of the result is then used in a WhyML if-then-else statement that corresponds to the branch in the assembly code.
+
+\section{Translation to WhyML}
+
+The translation program \verb"mips2why3" maps constructs of assembly language to their counterparts in WhyML. It is 
+a parser that is generated from a context free BNF grammar. \verb"mips2why3" recognizes a fusion of the MARS assembly 
+syntax and an annotation language. Some annotations are simply passed through from input to output (pass through
+blocks) other annotations are keywords that announce a specific language construct (for example procedures, loops
+or branches). Simple as it is, \verb"mips2why3" performs no semantic checks. So some care must be taken when using it.
+Nevertheless it is much faster to work with \verb"mips2why3" than performing a manual translation would be. It is 
+sufficient for the purposes of training and programming experiments. \\
+\verb"mips2why3" is invoked from command line with the assembly input file as argument.
+\begin{lstlisting}
+java -jar mips2why3.jar program.asm
+\end{lstlisting} 
+The program writes its output to the terminal. Writing to file is done by redirection.
+\begin{lstlisting}
+java -jar mips2why3.jar program.asm > program.mlw
+\end{lstlisting} 
+The grammar, together with a detailed description of the language, can be found on GitHub.
+
+\section{Validation of the MIPS Model}
+A set of example programs was written to validate the MIPS model (and the translation program).
+For each MIPS instruction a small test was implemented. Furthermore there are tests for procedure calls,
+branch constructs and loops. The tests describe simple use cases and sometimes special characteristics of 
+particular instructions. The tests are MIPS assembly programs with assertions that describe the expected result
+of program execution. The tests were translated to Why3 to perform the proof of all assertions. Then the tests
+were executed in MARS. Finally the results were compared. All assertions could be proved (with automated provers)
+\footnote{The Z3 solver could even prove assertions about the bitwise instructions, despite of the large terms involved.}
+ and the results were in accordance with the execution results in MARS. 
+The test cases and their description are available on GitHub.  
+%%%%

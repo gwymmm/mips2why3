@@ -1,0 +1,1295 @@
+PARSER_BEGIN(MipsParser)
+
+//import java.util.Vector;
+
+public class MipsParser {
+
+  public static void main(String args[]) {
+    MipsParser parser;
+    if (args.length == 0) {
+      System.out.println("No file specified for input");
+      return;
+    } else if (args.length == 1) {
+      try {
+        parser = new MipsParser(new java.io.FileInputStream(args[0]));
+      } catch (java.io.FileNotFoundException e) {
+        System.out.println(" Could not open input file " + args[0] );
+        return;
+      }
+    } else {
+      System.out.println("mips2why3 Translator Usage:");
+      System.out.println("         java MipsParser inputfile");
+      return;
+    }
+    try {
+      // BEGIN PARSING AT START SYMBOL
+      parser.assembler_program();
+    } catch (ParseException e) {
+      System.out.println(e.toString());
+      System.out.println("### ERROR ###");
+    }
+  }
+
+}
+
+PARSER_END(MipsParser)
+
+/* LEXER */
+
+TOKEN : { < TEXT_DIRECTIVE : ".text" > }
+TOKEN : { < ADD : "add" > }
+TOKEN : { < ADDU : "addu" > }
+TOKEN : { < ADDI : "addi" > }
+TOKEN : { < ADDIU : "addiu" > }
+TOKEN : { < SUB : "sub" > }
+TOKEN : { < SUBU : "subu" > }
+TOKEN : { < MULT : "mult" > }
+TOKEN : { < MULTU : "multu" > }
+TOKEN : { < DIVU : "divu" > }
+TOKEN : { < MFHI : "mfhi" > }
+TOKEN : { < MFLO : "mflo" > }
+TOKEN : { < LUI : "lui" > }
+TOKEN : { < SRL : "srl" > }
+TOKEN : { < SLL : "sll" > }
+TOKEN : { < SLT : "slt" > }
+TOKEN : { < SLTI : "slti" > }
+TOKEN : { < SLTIU : "sltiu" > }
+TOKEN : { < SLTU : "sltu" > }
+TOKEN : { < LW : "lw" > }
+TOKEN : { < SW : "sw" > }
+TOKEN : { < LB : "lb" > }
+TOKEN : { < LBU : "lbu" > }
+TOKEN : { < SB : "sb" > }
+TOKEN : { < AND : "and" > }
+TOKEN : { < ANDI : "andi" > }
+TOKEN : { < OR : "or" > }
+TOKEN : { < ORI : "ori" > }
+TOKEN : { < BEQ : "beq" > }
+TOKEN : { < BNE : "bne" > }
+
+TOKEN : { < SYSCALL : "syscall" > }
+TOKEN : { < J : "j" > }
+TOKEN : { < JAL : "jal" > }
+TOKEN : { < JR : "jr" > }
+
+TOKEN : { < BRANCH : "#@" (" ")* "branch" > }
+TOKEN : { < END_BRANCH : "#@" (" ")* "end" (" ")* "branch" > }
+TOKEN : { < LOOP : "#@" (" ")* "loop" > }
+TOKEN : { < END_LOOP : "#@" (" ")* "end" (" ")* "loop" > }
+TOKEN : { < PROCEDURE : "#@" (" ")* "procedure" > }
+TOKEN : { < END_PROCEDURE : "#@" (" ")* "end" (" ")* "procedure" > }
+TOKEN : { < CALL : "#@" (" ")* "call" > }
+TOKEN : { < BREAK : "#@" (" ")* "break" > }
+
+TOKEN : { < COLON : ":" > }
+TOKEN : { < COMMA : "," > }
+TOKEN : { < OPEN_BRACKET : "(" > }
+TOKEN : { < CLOSE_BRACKET : ")" > }
+
+TOKEN : { < ZERO : "$zero" > }
+TOKEN : { < GPR : "$" ["a"-"z"] ["a"-"z", "0"-"9"] > }
+TOKEN : { < LABEL : ["a"-"z"] (["a"-"z", "0"-"9", "_"])* > }
+TOKEN : { < DECIMAL_NUMBER : (["-", "+"])? (["0"-"9"])+ > }
+TOKEN : { < HEX_NUMBER : "0x" (["0"-"9", "a"-"f"])* > }
+
+TOKEN : { < PASS_THROUGH_BLOCK: "#" ">" (~["\n"])* "\n" > }
+
+SKIP : { < COMMENT: "#" ~["@", ">"] (~["\n"])* "\n" > }
+SKIP : { " " | "\t" | "\n" | "\r" | "\f" }
+
+void assembler_program() : { Token t; }
+{
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ prequel() 
+ startup() 
+ procedures()
+}
+
+void prequel() : { Token t; }
+{
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ prequel() 
+
+  |  /* or */
+
+ <TEXT_DIRECTIVE> { System.out.println("exception Break unit"); }
+}
+
+void startup() : {Token t;}
+{
+ <JAL> <LABEL>
+ <ADDI> <GPR> <COMMA> <ZERO> <COMMA> <DECIMAL_NUMBER>
+ <SYSCALL>
+
+  | /* or */
+
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ startup() 
+}
+
+void procedures() : {Token t;}
+{
+ <PROCEDURE> { System.out.println(""); }
+ signature()
+ procedure_body()
+ procedures()
+
+  | /* or */
+
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ procedures() 
+
+  | /* or */
+
+ <EOF> { System.out.println("end (* module *)"); }
+}
+
+void signature() : { Token t; }
+{
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ signature()
+
+  | /* or */
+
+ <LABEL> <COLON> { System.out.println("="); }
+}
+
+void procedure_body() : { Token t; }
+{
+ <BRANCH>
+ branch_instruction()
+ not_branched()
+ branched()
+ procedure_body()
+
+  | /* or */
+
+ <LOOP> { System.out.println("try loop"); }
+ loop_body()
+ loop_end()
+ procedure_body()
+
+  | /* or */
+
+ <CALL>
+ procedure_call()
+ procedure_body()
+
+  | /* or */
+
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ procedure_body()
+
+  | /* or */
+
+ <ADD> 
+ add_instruction()
+ procedure_body() 
+
+  | /* or */
+
+ <ADDI> 
+ addi_instruction()
+ procedure_body() 
+
+  | /* or */
+
+ <ADDU> 
+ addu_instruction()
+ procedure_body() 
+
+  | /* or */
+
+ <ADDIU> 
+ addiu_instruction()
+ procedure_body() 
+
+  | /* or */
+
+ <SUB> 
+ sub_instruction()
+ procedure_body() 
+
+  | /* or */
+
+ <SUBU> 
+ subu_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <MULT> { System.out.print("mult "); }
+ mult_div_instruction()
+ procedure_body()  
+
+  | /* or */
+
+ <MULTU> { System.out.print("multu "); }
+ mult_div_instruction()
+ procedure_body()  
+
+  | /* or */
+
+ <DIVU> { System.out.print("divu "); }
+ mult_div_instruction()
+ procedure_body()  
+
+  | /* or */
+
+ <MFHI> 
+ mfhi_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <MFLO> 
+ mflo_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <LUI> 
+ lui_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SRL> 
+ srl_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SLL> 
+ sll_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SLT> 
+ slt_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SLTI> 
+ slti_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SLTIU> 
+ sltiu_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SLTU> 
+ sltu_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <LW> 
+ lw_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SW> 
+ sw_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <LB> 
+ lb_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <LBU> 
+ lbu_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <SB> 
+ sb_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <AND> 
+ and_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <ANDI> 
+ andi_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <OR> 
+ or_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <ORI> 
+ ori_instruction()
+ procedure_body()
+
+  | /* or */
+
+ <LABEL> 
+ <COLON>
+ procedure_body()
+
+  | /* or */
+
+ <JR> <GPR> { System.out.println("()"); }
+ <END_PROCEDURE> 
+}
+
+void add_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := add "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void middle_operand() : { Token t; }
+{
+ t = <GPR> { System.out.print("(!" + t.image.substring(1) + ") "); }
+
+  | /* or */
+
+ <ZERO> { System.out.print("(0) "); }
+}
+
+void last_operand() : { Token t; }
+{
+ t = <GPR> { System.out.print("(!" + t.image.substring(1) + ");\n"); }
+
+  | /* or */
+
+ <ZERO> { System.out.print("(0);\n"); }
+}
+
+void addi_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := addi "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void immediate() : { Token t; }
+{
+ t = <DECIMAL_NUMBER> { System.out.print("(" + t.image + ");\n"); }
+
+  | /* or */
+
+ t = <HEX_NUMBER> { System.out.print("(" + t.image + ");\n"); }
+}
+
+void addu_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := addu "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand() 
+}
+
+void addiu_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := addiu "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void sub_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := sub "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void subu_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := subu "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void mult_div_instruction() : { Token t; }
+{
+ middle_operand()
+ <COMMA>
+ last_mult_operand()
+}
+
+void last_mult_operand() : { Token t; }
+{
+ t = <GPR> { System.out.print("(!" + t.image.substring(1) + ") (lo) (hi);\n"); }
+
+  | /* or */
+
+ <ZERO> { System.out.print("(0) (lo) (hi);\n"); }
+}
+
+void mfhi_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := mfhi (!hi);\n"); }
+}
+
+void mflo_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := mflo (!lo);\n"); }
+}
+
+void lui_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := lui "); }
+ <COMMA>
+ immediate() 
+}
+
+void srl_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := srl "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void sll_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := sll "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void slt_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := slt "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void slti_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := slti "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void sltiu_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := sltiu "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void sltu_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := sltu "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void lw_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := lw (!mem) "); }
+ <COMMA>
+ indexed_access()
+}
+
+void indexed_access() : { Token t; }
+{
+ t = <DECIMAL_NUMBER> { System.out.print("(" + t.image + ") "); }
+ <OPEN_BRACKET>
+ t = <GPR> { System.out.print("(!" + t.image.substring(1) + ");\n"); }
+ <CLOSE_BRACKET> 
+}
+
+void sw_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print("mem := sw (!mem) (!" 
+              + t.image.substring(1) + ") "); }
+ <COMMA>
+ indexed_access()
+}
+
+void lb_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := lb (!mem) "); }
+ <COMMA>
+ indexed_access()
+}
+
+void lbu_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := lbu (!mem) "); }
+ <COMMA>
+ indexed_access()
+}
+
+void sb_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print("mem := sb (!mem) (!" 
+              + t.image.substring(1) + ") "); }
+ <COMMA>
+ indexed_access()
+}
+
+void and_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := and "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void or_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := or "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ last_operand()
+}
+
+void andi_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := andi "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void ori_instruction() : { Token t; }
+{
+ t = <GPR> { System.out.print(t.image.substring(1) + " := ori "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ immediate() 
+}
+
+void branch_instruction() : { Token t; }
+{
+ <BEQ> { System.out.print("let branch = beq "); }
+ branch_instruction_operands()
+ 
+  | /* or */
+
+ <BNE> { System.out.print("let branch = bne "); }
+ branch_instruction_operands()
+
+}
+
+void branch_instruction_operands() : { Token t; }
+{
+ t = <GPR> { System.out.print("(!" + t.image.substring(1) + ") "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ <LABEL> { System.out.print("in\n"); 
+           System.out.print("if (branch = 0) then (\n");
+         }
+
+  | /* or */
+
+ <ZERO> { System.out.print("(0) "); }
+ <COMMA>
+ middle_operand() 
+ <COMMA>
+ <LABEL> { System.out.print("in\n"); 
+           System.out.print("if (branch = 0) then (\n");
+         }
+}
+
+void procedure_call() : { Token t; }
+{
+ t = <PASS_THROUGH_BLOCK> { System.out.println("touch (ra);");
+                            System.out.print(t.image.substring(2)); }
+ <JAL>
+ <LABEL>
+}
+
+void not_branched() : { Token t; } 
+{
+ <J> { System.out.println("())");
+       System.out.println("else ("); }
+ <LABEL>
+
+  | /* or */
+
+ <BRANCH>
+ branch_instruction()
+ not_branched()
+ branched()
+ not_branched()
+
+  | /* or */
+
+ <LOOP> { System.out.println("try loop"); }
+ loop_body()
+ loop_end()
+ not_branched()
+
+  | /* or */
+
+ <CALL>
+ procedure_call()
+ not_branched()
+
+  | /* or */
+
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ not_branched()
+
+  | /* or */
+
+ <ADD> 
+ add_instruction()
+ not_branched()
+
+  | /* or */
+
+ <ADDI> 
+ addi_instruction()
+ not_branched()
+
+  | /* or */
+
+ <ADDU> 
+ addu_instruction()
+ not_branched()
+
+  | /* or */
+
+ <ADDIU> 
+ addiu_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SUB> 
+ sub_instruction()
+ not_branched() 
+
+  | /* or */
+
+ <SUBU> 
+ subu_instruction()
+ not_branched()
+
+  | /* or */
+
+ <MULT> { System.out.print("mult "); }
+ mult_div_instruction()
+ not_branched() 
+
+  | /* or */
+
+ <MULTU> { System.out.print("multu "); }
+ mult_div_instruction()
+ not_branched()
+
+  | /* or */
+
+ <DIVU> { System.out.print("divu "); }
+ mult_div_instruction()
+ not_branched()
+
+  | /* or */
+
+ <MFHI> 
+ mfhi_instruction()
+ not_branched()
+
+  | /* or */
+
+ <MFLO> 
+ mflo_instruction()
+ not_branched()
+
+  | /* or */
+
+ <LUI> 
+ lui_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SRL> 
+ srl_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SLL> 
+ sll_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SLT> 
+ slt_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SLTI> 
+ slti_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SLTIU> 
+ sltiu_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SLTU> 
+ sltu_instruction()
+ not_branched()
+
+  | /* or */
+
+ <LW> 
+ lw_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SW> 
+ sw_instruction()
+ not_branched()
+
+  | /* or */
+
+ <LB> 
+ lb_instruction()
+ not_branched()
+
+  | /* or */
+
+ <LBU> 
+ lbu_instruction()
+ not_branched()
+
+  | /* or */
+
+ <SB> 
+ sb_instruction()
+ not_branched()
+
+  | /* or */
+
+ <AND> 
+ and_instruction()
+ not_branched()
+
+  | /* or */
+
+ <ANDI> 
+ andi_instruction()
+ not_branched()
+
+  | /* or */
+
+ <OR> 
+ or_instruction()
+ not_branched()
+
+  | /* or */
+
+ <ORI> 
+ ori_instruction()
+ not_branched()
+
+  | /* or */
+
+ <LABEL> 
+ <COLON>
+ not_branched()
+
+}
+
+void branched() : { Token t; } 
+{
+ <END_BRANCH> { System.out.println("()); (* end if *)"); }
+
+  | /* or */
+
+ <BRANCH>
+ branch_instruction()
+ not_branched()
+ branched()
+ branched()
+
+  | /* or */
+
+ <LOOP> { System.out.println("try loop"); }
+ loop_body()
+ loop_end()
+ branched()
+
+  | /* or */
+
+ <CALL>
+ procedure_call()
+ branched()
+
+  | /* or */
+
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ branched()
+
+  | /* or */
+
+ <ADD> 
+ add_instruction()
+ branched()
+
+  | /* or */
+
+ <ADDI> 
+ addi_instruction()
+ branched()
+
+  | /* or */
+
+ <ADDU> 
+ addu_instruction()
+ branched()
+
+  | /* or */
+
+ <ADDIU> 
+ addiu_instruction()
+ branched()
+
+  | /* or */
+
+ <SUB> 
+ sub_instruction()
+ branched()
+
+  | /* or */
+
+ <SUBU> 
+ subu_instruction()
+ branched()
+
+  | /* or */
+
+ <MULT> { System.out.print("mult "); }
+ mult_div_instruction()
+ branched()
+
+  | /* or */
+
+ <MULTU> { System.out.print("multu "); }
+ mult_div_instruction()
+ branched()
+
+  | /* or */
+
+ <DIVU> { System.out.print("divu "); }
+ mult_div_instruction()
+ branched()
+
+  | /* or */
+
+ <MFHI> 
+ mfhi_instruction()
+ branched()
+
+  | /* or */
+
+ <MFLO> 
+ mflo_instruction()
+ branched()
+
+  | /* or */
+
+ <LUI> 
+ lui_instruction()
+ branched()
+
+  | /* or */
+
+ <SRL> 
+ srl_instruction()
+ branched()
+
+  | /* or */
+
+ <SLL> 
+ sll_instruction()
+ branched()
+
+  | /* or */
+
+ <SLT> 
+ slt_instruction()
+ branched()
+
+  | /* or */
+
+ <SLTI> 
+ slti_instruction()
+ branched()
+
+  | /* or */
+
+ <SLTIU> 
+ sltiu_instruction()
+ branched()
+
+  | /* or */
+
+ <SLTU> 
+ sltu_instruction()
+ branched()
+
+  | /* or */
+
+ <LW> 
+ lw_instruction()
+ branched()
+
+  | /* or */
+
+ <SW> 
+ sw_instruction()
+ branched()
+
+  | /* or */
+
+ <LB> 
+ lb_instruction()
+ branched()
+
+  | /* or */
+
+ <LBU> 
+ lbu_instruction()
+ branched()
+
+  | /* or */
+
+ <SB> 
+ sb_instruction()
+ branched()
+
+  | /* or */
+
+ <AND> 
+ and_instruction()
+ branched()
+
+  | /* or */
+
+ <ANDI> 
+ andi_instruction()
+ branched()
+
+  | /* or */
+
+ <OR> 
+ or_instruction()
+ branched()
+
+  | /* or */
+
+ <ORI> 
+ ori_instruction()
+ branched()
+
+  | /* or */
+
+ <LABEL> 
+ <COLON>
+ branched()
+
+}
+
+void loop_body() : { Token t; } 
+{
+
+ <J> 
+ <LABEL>
+
+  | /* or */
+
+ <BREAK> 
+ break_instruction()
+ loop_body()
+
+  | /* or */
+
+ <BRANCH>
+ branch_instruction()
+ not_branched()
+ branched()
+ loop_body()
+
+  | /* or */
+
+ <LOOP> { System.out.println("try loop"); }
+ loop_body()
+ loop_end()
+ loop_body()
+
+  | /* or */
+
+ <CALL>
+ procedure_call()
+ loop_body()
+
+  | /* or */
+
+ t = <PASS_THROUGH_BLOCK> { System.out.print(t.image.substring(2)); }
+ loop_body()
+
+  | /* or */
+
+ <ADD> 
+ add_instruction()
+ loop_body()
+
+  | /* or */
+
+ <ADDI> 
+ addi_instruction()
+ loop_body()
+
+  | /* or */
+
+ <ADDU> 
+ addu_instruction()
+ loop_body()
+
+  | /* or */
+
+ <ADDIU> 
+ addiu_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SUB> 
+ sub_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SUBU> 
+ sub_instruction()
+ loop_body()
+
+  | /* or */
+
+ <MULT> { System.out.print("mult "); }
+ mult_div_instruction()
+ loop_body()
+
+  | /* or */
+
+ <MULTU> { System.out.print("multu "); }
+ mult_div_instruction()
+ loop_body()
+
+  | /* or */
+
+ <DIVU> { System.out.print("divu "); }
+ mult_div_instruction()
+ loop_body()
+
+  | /* or */
+
+ <MFHI> 
+ mfhi_instruction()
+ loop_body()
+
+  | /* or */
+
+ <MFLO> 
+ mflo_instruction()
+ loop_body()
+
+  | /* or */
+
+ <LUI> 
+ lui_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SRL> 
+ srl_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SLL> 
+ sll_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SLT> 
+ slt_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SLTI> 
+ slti_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SLTIU> 
+ sltiu_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SLTU> 
+ sltu_instruction()
+ loop_body()
+
+  | /* or */
+
+ <LW> 
+ lw_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SW> 
+ sw_instruction()
+ loop_body()
+
+  | /* or */
+
+ <LB> 
+ lb_instruction()
+ loop_body()
+
+  | /* or */
+
+ <LBU> 
+ lbu_instruction()
+ loop_body()
+
+  | /* or */
+
+ <SB> 
+ sb_instruction()
+ loop_body()
+
+  | /* or */
+
+ <AND> 
+ and_instruction()
+ loop_body()
+
+  | /* or */
+
+ <ANDI> 
+ andi_instruction()
+ loop_body()
+
+  | /* or */
+
+ <OR> 
+ or_instruction()
+ loop_body()
+
+  | /* or */
+
+ <ORI> 
+ ori_instruction()
+ loop_body()
+
+  | /* or */
+
+ <LABEL> 
+ <COLON>
+ loop_body()
+
+}
+
+void break_instruction() : { Token t; }
+{
+ <BEQ> { System.out.print("let branch = beq "); }
+ break_instruction_operands()
+ 
+  | /* or */
+
+ <BNE> { System.out.print("let branch = bne "); }
+ break_instruction_operands()
+
+}
+
+void break_instruction_operands() : { Token t; }
+{
+ t = <GPR> { System.out.print("(!" + t.image.substring(1) + ") "); }
+ <COMMA>
+ middle_operand()
+ <COMMA>
+ <LABEL> { System.out.print("in\n"); 
+           System.out.print("if (branch = 1) then raise Break;\n");
+         }
+
+  | /* or */
+
+ <ZERO> { System.out.print("(0) "); }
+ <COMMA>
+ middle_operand() 
+ <COMMA>
+ <LABEL> { System.out.print("in\n"); 
+           System.out.print("if (branch = 1) then raise Break;\n");
+         }
+}
+
+void loop_end() : {}
+{
+ <END_LOOP> { System.out.println("()"); 
+              System.out.println("end (* loop *) with Break -> () end;");} 
+
+}

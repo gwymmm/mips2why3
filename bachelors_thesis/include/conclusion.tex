@@ -1,0 +1,12 @@
+Verification of assembly programs with help of theorem provers was already done in \cite{spade}. More recent
+efforts can be found in \cite{verimix} and \cite{why3-avr}.
+This work has focused on an educational approach by combining MIPS assembly verification in Why3 with execution
+in the MARS simulator. For this purpose a parser was implemented that helps to translate assembly in MARS syntax into 
+the input language of Why3. Furthermore a theory for a subset of the MIPS instruction set was written in Why3.
+The results of the tests are promising. \\
+The Why3 theory helps to understand the MIPS instruction set and assembly
+programming in general. The introduced static checks help to find errors early in the development process.
+In this context, automated theorem provers are a great help for the programmer, since it would be impossible to perform all checks manually.\\
+ As further work it is planned to adapt an approach similar to \cite{verimix} and to extract theories directly 
+from the assembly code (bypassing translation to WhyML). This would give the programmer more freedom regarding the
+control flow of the program.  

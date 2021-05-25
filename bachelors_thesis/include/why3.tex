@@ -1,0 +1,636 @@
+\section{Why3 Verification Platform}
+
+Why3 \footnote{\verb"why3.lri.fr"} is used to talk to theorem provers. The main
+application of Why3 is program verification. Why3 has an input language 
+to write theories, programs and the specification for the programs. 
+The input language is translated to the input languages of different theorem
+provers. Then the provers are invoked to find a proof for the given goals.
+Why3 can be compared to a compiler. The Why3 front end reads the input
+language. Since different theorem provers have different input languages
+Why3 has several back ends to translate the input to various formats.
+
+\subsection{Why3 Workflow}
+
+In this work the version 0.87.3 of the Why3 platform was used.
+It was obtained by downloading the package \textbf{why3} with Debian Linux 9.
+The GitHub repository for this project contains more information about
+installation and configuration of Why3 \footnote{\verb"github.com/zul2/mips2why3"}. 
+Input files for Why3 have the extension ".mlw". After writing an input file
+you might want to perform a check for errors. The \verb"prove" command checks
+the syntax and semantics of the input.
+\begin{lstlisting}
+why3 prove -L . --type-only example.mlw
+\end{lstlisting}
+The \verb"-L ." option adds the current working directory to the library path.
+So you can use your own library files in addition to the 
+standard library of Why3.
+The \verb"ide" command starts an interactive proof session.
+\begin{lstlisting}
+why3 ide -L . example.mlw
+\end{lstlisting}
+In the interactive session proof goals can be selected and \emph{split} into 
+smaller subgoals. \emph{Provers} can be called to solve the goals. 
+The \emph{source code} of the of the input files can be viewed. Often it is also useful
+to look at the \emph{task} (the theory and the goals) that was extracted from
+the input and will be presented to the provers.
+
+\subsection{Why3 Input Language}
+
+The following part describes a subset of the Why3 input language. This
+is done for two reasons. First the manual of Why3 \cite{why3man} does not always provide 
+this kind of information. Second many features of the language are not
+needed for the purpose of this work and are omitted. The basic concepts
+are presented here and additional features are introduced when needed.
+The full source code for the examples can be found at the GitHub repository.
+
+\subsubsection{Modules}
+
+The Why3 input language is organized in modules. A module can contain
+everything the language offers (theories, programs and specification).
+Entities (functions or constants for example) from other modules are included with the \verb"use" keyword. 
+\begin{lstlisting}
+use file_name.module_name
+\end{lstlisting}
+Usage of these entities requires a fully qualified name.
+\begin{lstlisting}
+module_name.entity_name
+\end{lstlisting}
+The optional \verb"import" keyword makes the entities directly visible. So full
+qualification is no longer needed for the entities of the imported module.
+However the possibility of name collisions raises when multiple modules are
+imported.
+\begin{lstlisting}
+module MyModule
+
+(* This is a Why3 comment *)
+
+(* Why3 library *)
+use import int.Int
+(* User defined library*)
+use a.A
+use import b.B
+
+(* x from A; y from B *)
+function sum: int = A.x + y
+
+end
+\end{lstlisting}
+
+\subsubsection{Types}
+
+In this work the int type from the Why3 standard library
+will be used. It is an unbound integer type and corresponds to the set of 
+whole numbers $\mathbb{Z}$ in mathematical notation. Later an unbound array (map) of 
+integers will be used to model the memory.
+
+\subsubsection{Theories - First Order Logic}
+
+The Why3 language for theories is first order logic. It consists of terms
+and formulas \cite[p. 739]{smt}. Terms are comparable to functions in
+standard programming languages. Formulas can be compared to functions with
+a boolean return value (predicates). Furthermore first order logic 
+supports quantifiers over elements of a set ($\forall$, $\exists$).
+First order logic is described in textbooks about mathematical logic. A
+good introduction for programmers is given in \cite[p. 135--150]{spark14}.
+
+\paragraph{Terms}
+
+A term in first order logic can be a constant, a function or a conditional
+term. A constant is a function that has no parameters. 
+\begin{lstlisting}
+constant x: int
+\end{lstlisting}
+A function takes parameters and returns a value of a particular type.
+A function is defined by giving it a name, defining its input parameters 
+and defining its return value after a colon.
+\begin{lstlisting}
+function add (x: int) (y: int) (z: int): int
+\end{lstlisting}
+A function defined as above is considered abstract since it has no
+function body. When we want to construct a function from other terms we 
+have to do it in a function body.
+\begin{lstlisting}
+function add (x:int) (y: int) (z:int): int = x + y + z
+\end{lstlisting}
+A function can be called by specifying its name and its actual parameters.
+The parameters can be written within parentheses.
+\begin{lstlisting}
+add a (b+8) 7
+\end{lstlisting}
+A conditional term is an if-then-else statement expecting one formula 
+(predicate) and two terms as the alternatives.
+\begin{lstlisting}
+function abs (x:int): int = if (x >= 0) 
+                            then (x) 
+                            else ( (-1) * x )
+\end{lstlisting}
+Note that \verb"*" and \verb"+" are also functions. They are defined in the Why3 
+standard library and are called using the common infix notation
+("2 + 3" instead of "+ 2 3"). 
+
+\paragraph{Formulas}
+
+First of all a predicate is a formula in first order logic.
+Predicates are comparable to functions with a boolean return value in 
+common programming languages. Predicates can have terms as input arguments.
+\begin{lstlisting}
+predicate greater (x:int) (y:int) = x > y
+\end{lstlisting}
+A predicate definition is similar to a function definition. There is no
+need to specify the return type since predicates (formulas) are always of
+"boolean" type.
+A predicate with no input arguments is comparable to a constant term.
+\begin{lstlisting}
+predicate today_is_a_rainy_day
+\end{lstlisting}
+A special formula/predicate is the equality between two terms.
+\begin{lstlisting}
+1 = (-1) * (-1)
+\end{lstlisting}
+Furthermore \verb"true" and \verb"false" are basic formulas. Formulas can be built
+from other formulas by applying boolean operators.
+\begin{lstlisting}
+(* always true *)
+a \/ true
+(* always false *)
+not ( a /\ false )
+(* logical double negation *)
+a <-> ( not ( not a ) )
+(* implication rewrite *)
+(a -> b) <-> ( (not a) \/ b )
+\end{lstlisting}
+The table shows the syntax of some common boolean operators in Why3.
+Their exact meaning is defined by truth tables \footnote{\verb"en.wikipedia.org/wiki/Truth\_table"}.
+
+\begin{tabular} {c|c|c}
+Why3 & English & Name \\
+\hline
+\verb"a /\ b" & a and b & Conjunction \\
+\verb"a \/ b" & a or b & Disjunction \\
+\verb"a -> b" & from a follows b & Implication \\
+\verb"a <-> b" & a is equivalent to b & Equivalence \\
+\verb"not a" & not a & Negation \\
+\end{tabular}
+
+\paragraph{Quantifier}
+
+Quantifier are used to write statements about all members of a set.
+\begin{lstlisting}
+forall i:int. i < (i + 1)
+\end{lstlisting}
+The statement above says that all integers are smaller than their 
+successor. Quantifier start with the keywords \verb"forall" or \verb"exists", 
+followed by a variable name and type, followed by a full stop. After
+the full stop a formula is given that contains the declared variable.
+Quantified statements are often used in mathematics. We can translate the
+above statement into classical mathematical notation.
+\[\forall i \in \mathbb{Z}: i < (i + 1)\]
+Quantified statements are also formulas. So you can use them in first order
+logic like predicates.
+\begin{lstlisting}
+(-10 < 0) /\ ( forall i:int. (i > 10) -> (i > 0) ) 
+\end{lstlisting}
+\verb"Forall" states that the formula is valid for all members of the given set
+(Universal Quantifier: $\forall$).
+\verb"Exists" states that the formula is valid for at least one member of the 
+given set (Existential Quantifier: $\exists$).
+Quantified statements can be nested. The following example states that
+for all integers there is at least one number that is greater than this
+integer.
+\begin{lstlisting}
+forall i:int. exists j:int. j > i
+\end{lstlisting}
+
+\paragraph{Axioms and Goals}
+
+A theory consists of a set of definitions (predicates and functions) and 
+a set of axioms. An axiom is a formula that is defined to be true.
+\begin{lstlisting}
+costant a: int
+axiom Aval: a = 10
+\end{lstlisting}
+When a goal is specified a theorem prover will use the theory and try to
+prove the given goal.
+\begin{lstlisting}
+goal A_greater_2: a > 2
+\end{lstlisting}
+Why3 has the same syntax for goals and axioms. Especially, you need to 
+give a name to every axiom or goal.
+Note that wrong or contradictory axioms break a theory. 
+In this case the theory is called inconsistent.
+With an inconsistent theory a prover will prove every goal regardless
+whether it is valid or not.
+\begin{lstlisting}
+axiom Nonsense: 2 = 7
+goal Nonsense2: 17 + 2 > 1000
+\end{lstlisting}
+
+\subsubsection{Programs - WhyML}
+
+A Why3 module can also contain programs. The programming language used
+by Why3 is called WhyML. Since it is a variant of ML it is a functional
+programming language. Nevertheless WhyML also supports an imperative,
+C like, programming style.
+
+\paragraph{References} \label{ref}
+
+To write imperative programs we have to use 
+references from the Why3 standard library \footnote{\verb"why3.lri.fr/stdlib/"}.
+\begin{lstlisting}
+use import ref.Ref
+\end{lstlisting}
+Reference variables can be written and read. They behave like variables in
+imperative languages like C. Note that a variable has to be dereferenced
+with the \verb"!" operator to obtain its value.
+\begin{lstlisting}
+(* increment x *)
+x := !x + 1
+\end{lstlisting}
+
+\paragraph{Procedures} \label{function}
+
+WhyML functions have a similar syntax to first order logic functions. The 
+\verb"function" keyword is replaced by the \verb"let" keyword.
+\begin{lstlisting}
+let add (x:int) (y: int) (z:int): int = x + y + z
+\end{lstlisting}
+We can write a procedure in WhyML by returning \verb"unit". Furthermore the parameters
+of procedures and functions can be references (in out parameters).
+\begin{lstlisting}
+let add (x: ref int) (y: ref int) 
+        (z:ref int) (r: ref int): unit
+=
+ r := !x + !y + !z;
+ ()
+\end{lstlisting}
+The empty statement \verb"()" at the end of the procedure denotes return from the procedure.
+
+\paragraph{Conditional Execution}
+
+To express conditional execution the if-then-else statement will be used.
+\begin{lstlisting}
+if (!x = 10) then (
+ x := !x + 1;
+ y := 0
+)
+else (
+ x := !x - 1;
+ y := 1
+);
+\end{lstlisting}
+Note that the position of the semicolons differs from C.
+
+\paragraph{Loops}
+
+To express loops an unconditional loop with break statements in the loop body
+will be used. Break statements are realized in WhyML by exceptions.
+\begin{lstlisting}
+try
+ loop
+  if (!x = 10) then raise Break;
+  x := !x + 1 
+ end (* loop *)
+with Break -> ()
+end (* try block *) ;
+\end{lstlisting}
+There is no code that handles the exception. After exception raising the program simply continues 
+at the point below the end of the loop.
+
+\subsubsection{Specification - Hoare Logic}
+
+The principle of writing the specification for a program is based on
+Hoare Logic \cite[p. 65--74]{fmb}. At the core of this logic is the
+concept of annotating a program with a precondition (something that is true before program execution) and a postcondition (something that is true
+after program execution). Below is an abbreviation of this concept.
+\begin{lstlisting}
+{P} S {Q}
+\end{lstlisting}
+The above formula means: "When the precondition P is true
+and the program S terminates the postcondition Q will be true".\\
+The input of theorem provers are theories and the corresponding
+goals, but not programs. So we need an algorithm that translates a program
+into a theory that corresponds to the behavior of the program. 
+Fortunately Why3 can do this for us. The process called Verification 
+Condition Generation extracts multiple theories and goals from a WhyML
+program. For this purpose Why3 analyzes the control and data flow of the program.
+Here we will see how Why3 deals with the four basic cases:
+\begin{itemize}
+\item sequential composition of statements
+\item conditional branches
+\item procedure invocation
+\item loops
+\end{itemize}
+
+\paragraph{Sequential Composition - Managing Program States}
+
+Suppose we have three integer variables a, b, c and this sequence of
+statements:
+\begin{lstlisting}
+a := 3;
+a := !a + 1;
+b := !a;
+c := !a + !b;
+\end{lstlisting}
+To express proof goals in WhyML programs we can use assertions. 
+Assertions are formulas of first order logic that have to be true at 
+the program point where they are inserted. An assertion in a WhyML program
+is translated to a goal in a Why3 theory. Assertions are expressed with the
+keyword \verb"assert" followed by a formula in brackets.
+\begin{lstlisting}
+a := 3;
+a := !a + 1;
+assert { !a = 4 };
+b := !a;
+assert { !b = 4 };
+c := !a + !b;
+assert { !c = 8 };
+assert { !c > 0 };
+\end{lstlisting}
+Using the control and data flow of the program Why3 builds a theory from
+the program source. Every time it encounters an assertion it can print the
+generated theory with the goal connected to the assertion. For the first
+assertion we get basically the following theory:
+\begin{lstlisting}
+axiom H: a0 = 3
+axiom H1: a1 = (a0 + 1)
+goal WP: a1 = 4
+\end{lstlisting}
+The most important point here is that an assignment changes the state of
+a variable. The old state a0 is used to compute the new state a1 of 
+variable a. The assertion deals with the most recent state of the 
+variable a which is a1 in this case.
+Here is the theory for the second assertion:
+\begin{lstlisting}
+axiom H: a0 = 3
+axiom H1: a1 = (a0 + 1)
+axiom H2: a1 = 4
+axiom H3: b = a1
+goal WP: b = 4
+\end{lstlisting}
+Note that axiom H2 is the formula that will be proved in the first
+assertion. Previous assertions are used as axioms in subsequent assertions
+regardless whether they are true or not. Here Why3 assumes that you will
+leave no assertion unproven. So unproven assertions can break the proof of
+the rest of the program.
+
+\paragraph{Conditional Branches}
+
+A conditional branch splits the program in two paths. Why3 can generate a
+theory for each path.
+\begin{lstlisting}
+if (!a < 0) then (
+ a := !a * (-1);
+ b := 0
+)
+else (
+ b := 1
+);
+
+c := 7;
+
+assert { (!a >= 0) /\ (!b = 1 \/ !b = 0) /\ (!c = 7) };
+\end{lstlisting}
+For the code above we get two theories. The first one deals with the case
+$a < 0$.
+\begin{lstlisting}
+axiom H: a0 < 0
+axiom H1: a1 = (a0 * (-1))
+axiom H2: b0 = 0
+axiom H3: c0 = 7
+goal WP: a1 >= 0 /\ (b0 = 1 \/ b0 = 0) /\ c0 = 7
+\end{lstlisting}
+In the second theory we have $a \geq 0$.
+\begin{lstlisting}
+axiom H: not (a0 < 0)
+axiom H1: b0 = 1
+axiom H2: c0 = 7
+goal WP: a1 >= 0 /\ (b0 = 1 \/ b0 = 0) /\ c0 = 7
+\end{lstlisting}
+The assertion has to be true for both program paths. 
+Note that multiple assertions at the same position can be combined
+into one assertion by making a conjunction.
+So
+\begin{lstlisting}
+assert { A };
+assert { B };
+assert { C };
+\end{lstlisting}
+is equivalent to 
+\begin{lstlisting}
+assert { A /\ B /\ C };
+\end{lstlisting}
+
+\paragraph{Procedure Invocation - Preconditions and Postconditions}
+
+Functions and procedures are the programming constructs where the concept
+of Hoare Logic is explicitly visible. Here is an example:
+\begin{lstlisting}
+let sum (a: ref int) (b: ref int) (c: ref int): unit
+ requires { (!a >= 0 /\ !a <= 10) /\ 
+            (!b >= 0 /\ !b <= 10) }
+ ensures { !c = old (!a) + old (!b) }
+=
+ c := !a + !b;
+ a := 10;
+ ()
+\end{lstlisting}
+The keywords \verb"requires" and \verb"ensures" define a special form of assertions.
+\verb"Ensures" defines the precondition of a function or procedure. 
+The precondition must be true at the beginning of the procedure. Every time
+the procedure is invoked Why3 generates a check that the precondition
+holds at this point of execution. When Why3 analyzes the body of the 
+procedure the precondition is assumed to be true.
+\verb"Requires" defines the postcondition of a function or procedure. The
+postcondition must be true at the end of the procedure. Why3 uses the 
+precondition together with the body of the procedure to generate a theory
+with the goal to prove the postcondition. For our example this theory has
+the following shape:
+\begin{lstlisting}
+axiom H : (a0 >= 0 /\ a0 <= 10) /\ (b0 >= 0 /\ b0 <= 10)
+axiom H1 : c0 = (a0 + b0)
+axiom H2 : a1 = 10
+goal WP : c0 = (a0 + b0)
+\end{lstlisting}
+Only the arguments of a procedure can be used in preconditions and 
+postconditions. Local variables can not be used since they are not visible
+for the caller. The only exception is the return value of a function. It 
+can be used in a postcondition and is called \verb"result" in Why3.
+Note that our variables can change their state during execution of the 
+procedure. So it is important to define which state of the variables we
+mean when we use the name of a variable in preconditions and
+postconditions. 
+In the case of a precondition the use of a variable is unambiguous.
+It means the value of a variable before execution of the procedure begins
+(prestate). So in our example writing a in the precondition means 
+"the value of variable a in the prestate a0".
+On the contrary writing a in the postcondition means "the value of 
+variable a in
+its most recent state at the end of the procedure" (in our example it 
+would be a1). When we want the value of a in the prestate we have to
+write \verb"old (!a)" in the postcondition.
+Here is an example for the invocation of our example procedure.
+\begin{lstlisting}
+x := 2;
+y := 3;
+z := 7;
+sum x y z;
+assert { !z = 5 };
+assert { !y = 3 };
+(* ! no proof ! *)
+(* assert { !x = 10 \/ !x = 2}; *)
+\end{lstlisting}
+When \verb"sum" is called Why3 generates a theory to prove the precondition.
+Therefore the formal parameters (a, b, c) are substituted by the actual
+parameters (x, y, z).
+\begin{lstlisting}
+axiom H: x0 = 2
+axiom H1: y0 = 3
+axiom H2: z0 = 7
+goal WP: (x0 >= 0 /\ x0 <= 10) /\ (y0 >= 0 /\ y0 <= 10)
+\end{lstlisting}
+When \verb"sum" returns the postcondition is assumed to be true and can be 
+used as axiom to prove additional assertions.
+\begin{lstlisting}
+axiom H : x0 = 2
+axiom H1 : y0 = 3
+axiom H2 : z0 = 7
+axiom Precondition : (x0 >= 0 /\ x0 <= 10) /\ 
+                     (y0 >= 0 /\ y0 <= 10)
+axiom Postcondition : z1 = (x0 + y0)
+goal WP: z1 = 5
+\end{lstlisting}
+In our example the states of x and z are changed by the invocation of 
+\verb"sum". On the contrary the state of y is not changed. With data flow 
+analysis Why3 is able to figure this out. Why3 knows that x and z are 
+changed but not how. In the case of z the postcondition provides the 
+information. But since the postcondition of \verb"sum" is silent about the state
+of x, the last assertion of our example is not provable. After the 
+procedure invocation x is neither 2 nor 10 in our theory.
+This is an illustrative example, that shows how context is handled in this analysis
+method. At the beginning of a procedure we see a reduced context. The only
+thing we can assume about all the possible invocations of the given
+procedure is that its precondition holds. Likewise the
+postcondition provides us a reduced view of the things that happen inside
+a procedure. The advantage of this approach is that we can decompose
+our program into smaller units that can be handled separately. Then the
+preconditions and postconditions form the interface of our subunits.
+
+\paragraph{Loops - Invariants and Variants}
+
+\emph{Loops are a problem} \cite[p. 201]{spark14}. Loops are difficult to handle in programs
+and the difficulties become even more explicit in a proof attempt.
+Loop invariants and variants are the two constructs that are available
+when dealing with loops. They are used to provide the rest of the program
+with information about the behavior of a loop (similar to a postcondition
+for a procedure). With loop variants it is possible to prove loop 
+termination.
+
+\subparagraph{Loop Invariants}
+
+In Why3 a loop invariant is a special assertion that is placed at the
+beginning of a loop. The invariant describes a predicate that is always true
+during loop execution.
+\begin{lstlisting}
+x := 0;
+
+try
+ loop
+ invariant { 0 <= !x <= 10 }
+ (* begin loop *)
+  if (!x = 10) then raise Break;
+  x := !x + 1 
+ end (* loop *)
+with Break -> ()
+end (* try block *) ;
+assert { !x = 10 };
+\end{lstlisting}
+The above example describes a simple loop that increments x until it 
+has the value 10. The proof of a loop invariant proceeds similar to a
+proof by induction in mathematics. It consists of two steps. First we have
+to prove that the invariant is valid when we first arrive at the loop. This
+is called loop invariant initialization. The second step is called loop
+invariant preservation. Assuming that the loop invariant is valid for
+iteration n we have to show that the invariant is also valid for iteration n+1.
+The process for extraction of the relevant theories can be imagined as
+follows. When we analyze the program following its control flow 
+(in the simplest case from top to bottom) we gather
+information about the program behavior and write it down in form of
+logical statements. When we enter a loop and see the loop invariant the
+first time we try to prove it using the collected information. So we get
+our theory for the loop invariant initialization. For our example Why3
+generates the following verification condition for loop invariant
+initialization.
+\begin{lstlisting}
+axiom H : x0 = 0
+goal Loop_invariant_init : 0 <= x0 /\ x0 <= 10
+\end{lstlisting}
+Now we assume the loop invariant to be true. Furthermore we forget 
+everything we know about the variables in the loop except what is stated
+in the invariant. We don't know whether we arrived at the loop 
+invariant by entering the loop the first time or by jumping back to make
+another iteration. The information we gathered about the loop variables
+before loop entry is not valid anymore. 
+Now we write the theory for loop invariant preservation. We assume the
+loop invariant and traverse the loop body until we jump back and arrive
+at the same invariant again. Note that this program path is generic. It
+describes many iterations of the loop not just one. In our example the following
+path describes all possible iterations of the loop.
+\begin{lstlisting}
+axiom H1 : 0 <= x1 /\ x1 <= 10
+axiom H2 : not x1 = 10
+axiom H3 : x2 = (x1 + 1)
+goal Loop_invariant_preservation : 0 <= x2 /\ x2 <= 10
+\end{lstlisting}
+Now we can prove the goals for loop invariant initialization and 
+preservation. Consequently the valid loop invariant at loop entry makes the loop
+invariant in the first iteration true. The loop invariant of the first
+iteration makes the loop invariant of the second iteration true and so on
+(induction principle). 
+Finally we will see what happens when the program exits the loop. Here
+again we have a generic path. We start at the loop invariant. In the 
+previous proof we showed that the the loop invariant is valid for all paths
+that can reach the invariant. So the invariant is true. We traverse the 
+loop body and arrive at the break statement where we exit the loop.
+\begin{lstlisting}
+axiom H1 : 0 <= x1 /\ x1 <= 10
+axiom H2 : x1 = 10
+goal WP: x1 = 10
+\end{lstlisting}
+
+\subparagraph{Loop Variants}
+In the previous section we did not prove loop termination. Our example
+loop terminates when x becomes 10 but we did not show that x actually 
+becomes 10. Our loop invariant just states that the value of x is always
+between 0 and 10.
+To prove loop termination we need a loop variant. In Why3 a loop variant
+can be inserted like a loop invariant at the beginning of a loop.
+\begin{lstlisting}
+try
+ loop
+ invariant { 0 <= !x <= 10 }
+ variant { 10 - !x }
+ (* begin loop *)
+  if (!x = 10) then raise Break;
+  x := !x + 1 
+ end (* loop *)
+with Break -> ()
+end (* try block *) ;
+assert { !x = 10 };
+\end{lstlisting}
+Note that a loop variant, unlike a loop invariant, is a term in first order
+logic and not a predicate. The loop variant must be non negative and 
+decrease in each iteration of the loop. 
+\begin{lstlisting}
+axiom H1 : 0 <= x1 /\ x1 <= 10
+axiom H2 : not x1 = 10
+axiom H3 : x2 = (x1 + 1)
+goal Loop_variant_decrease : 0 <= (10 - x1) /\ 
+                             (10 - x2) < (10 - x1)
+\end{lstlisting}
+With a proof of the loop variant we have found a variable that has 
+a lower bound (in our case 0) and decreases with every iteration of the
+loop. Eventually the variant will reach value 0 and the loop will terminate.
+Note that the loop invariant provides the information needed for the proof
+of the variant. The loop invariant also helps to describe the state of the
+program \emph{if} the program exits the loop. The proof \emph{that} the program exits the
+loop is done with the help of a loop variant.

@@ -1,0 +1,36 @@
+module F
+
+use import int.Int
+
+
+(* predicates can take parameters and be defined in terms of other predicates*)
+predicate greater (x:int) (y:int) = x > y
+
+(* Why3 has a builtin theory of arithmetic to prove such things *)
+goal Four_greater_Three: greater 4 3
+
+(* a predicate without parameters *)
+predicate today_is_a_rainy_day
+
+(* we state that the predicate is true *)
+axiom Let_it_rain: today_is_a_rainy_day
+
+(* consequently we can prove this from our axiom *)
+goal Prove_from_Assumption: today_is_a_rainy_day
+
+(* the equality between two terms is a formula *)
+goal Double_negation: 1 = (-1) * (-1)
+
+(* combining formulas *)
+predicate a
+predicate b
+
+(* here are some tautologies *)
+(* tautologies are always true regardless of the interpretation of the predicates *)
+goal Always_True: a \/ true
+goal Always_False: not ( a /\ false )
+goal Logical_Double_Negation: a <-> ( not ( not a ) )
+goal Implication_Rewrite: (a -> b) <-> ( (not a) \/ b )
+
+
+end
